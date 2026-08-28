@@ -3,32 +3,48 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Pierce Voice Calendar</title>
+    <title>Pierce Voice Sessions</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <main class="shell">
       <section class="panel">
         <div>
-          <p class="eyebrow">OpenAI Realtime</p>
           <div class="brand-title">
             <img src="/pierce-logo.svg" alt="" class="brand-logo" aria-hidden="true" />
             <h1>Pierce</h1>
           </div>
-          <p id="modeDescription" class="lede">Book a 15-minute session with Pierce.</p>
+          <p id="eventEyebrow" class="event-eyebrow" hidden>PIERCE EVENT</p>
+          <h2 id="eventTitle" class="event-title" hidden></h2>
+          <p id="eventDetails" class="event-details" hidden></p>
+          <p id="modeDescription" class="lede">Schedule a 15-minute session.</p>
         </div>
 
-        <div class="mode-switch" role="radiogroup" aria-label="Pierce mode">
+        <div id="modeSwitch" class="mode-switch" role="radiogroup" aria-label="Pierce mode">
           <button id="bookModeButton" class="active" type="button" role="radio" aria-checked="true">
-            Book Session
+            Book
           </button>
           <button id="checkInModeButton" type="button" role="radio" aria-checked="false">
             Check In
           </button>
         </div>
 
+        <div id="eventModeSwitch" class="mode-switch" role="radiogroup" aria-label="Event option" hidden>
+          <button id="eventPrepareButton" class="active" type="button" role="radio" aria-checked="true">
+            Prepare
+          </button>
+          <button id="eventCheckInButton" type="button" role="radio" aria-checked="false">
+            Check In
+          </button>
+        </div>
+
+        <div id="careerProgress" class="career-progress" aria-live="polite" hidden>
+          <span id="careerStage">Ready</span>
+          <time id="careerTimer" datetime="PT15M">15:00</time>
+        </div>
+
         <div class="controls">
-          <button id="startButton" type="button">Book with Pierce</button>
+          <button id="startButton" type="button">Start</button>
           <button id="stopButton" type="button" disabled>End</button>
         </div>
 
@@ -38,7 +54,13 @@
         <p id="status" class="sr-only" aria-live="polite">Stopped</p>
         <audio id="remoteAudio" autoplay></audio>
 
-        <ol id="events" class="events" aria-label="Realtime events"></ol>
+        <div
+          id="events"
+          class="events"
+          aria-label="Session update"
+          aria-live="polite"
+          aria-atomic="true"
+        ></div>
       </section>
     </main>
 

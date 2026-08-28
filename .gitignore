@@ -1,7 +1,14 @@
 .env
 .env.*
+!.env.example
 node_modules/
 work/
 .DS_Store
 npm-debug.log*
 *.zip
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+service-account*.json

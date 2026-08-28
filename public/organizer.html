@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Event Review | Pierce</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="organizer-shell">
+      <header class="organizer-header">
+        <div class="organizer-brand">
+          <img src="/pierce-logo.svg" alt="" class="organizer-logo" aria-hidden="true" />
+          <span>Pierce</span>
+        </div>
+        <button id="refreshButton" class="secondary-button" type="button">Refresh</button>
+      </header>
+
+      <section class="organizer-intro">
+        <p class="event-eyebrow">ORGANIZER REVIEW</p>
+        <h1 id="organizerTitle">Participant follow-ups</h1>
+        <p id="organizerDetails" class="lede">Review each recap before it is emailed and added to HubSpot.</p>
+      </section>
+
+      <p id="organizerStatus" class="organizer-status" aria-live="polite">Loading summaries...</p>
+      <section id="summaryList" class="summary-list" aria-label="Participant summaries"></section>
+    </main>
+    <script type="module" src="/organizer.js"></script>
+  </body>
+</html>
