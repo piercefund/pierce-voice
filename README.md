@@ -28,6 +28,59 @@ Pierce supports three acts in one voice interface: book a 15-minute session, che
 5. Open http://localhost:3000, choose `Book` or `Check In`, and allow microphone access. A checked-in guest can then start their career session without repeating their identity or booking lookup.
 6. Use the primary button to begin. Pierce ends the voice session automatically after a successful close; `End` remains available if a guest needs to stop early.
 
+## Google Cloud Run
+
+Pierce can run on Google Cloud Run instead of a localhost and ngrok tunnel. Cloud Run provides a stable HTTPS service URL and injects the `PORT` environment variable automatically. In Cloud Run, Pierce listens on `0.0.0.0`; locally, it continues to default to `127.0.0.1`.
+
+Before deploying, install and sign in to the Google Cloud CLI, select your Google Cloud project, and enable billing for that project:
+
+```bash
+gcloud auth login
+gcloud config set project YOUR_PROJECT_ID
+gcloud config set run/region us-west1
+```
+
+Create secrets in Secret Manager. Do not commit these values to GitHub:
+
+```bash
+printf '%s' 'YOUR_OPENAI_API_KEY' | gcloud secrets create pierce-openai-api-key --data-file=-
+printf '%s' 'YOUR_OPENAI_WEBHOOK_SECRET' | gcloud secrets create pierce-openai-webhook-secret --data-file=-
+printf '%s' 'YOUR_GOOGLE_CLIENT_SECRET' | gcloud secrets create pierce-google-client-secret --data-file=-
+printf '%s' 'YOUR_GOOGLE_REFRESH_TOKEN' | gcloud secrets create pierce-google-calendar-refresh-token --data-file=-
+printf '%s' 'YOUR_HUBSPOT_SERVICE_KEY' | gcloud secrets create pierce-hubspot-service-key --data-file=-
+```
+
+Deploy from the repository root:
+
+```bash
+gcloud run deploy pierce-voice \
+  --source . \
+  --allow-unauthenticated \
+  --timeout=3600 \
+  --min-instances=1 \
+  --max-instances=1 \
+  --no-cpu-throttling \
+  --session-affinity \
+  --set-env-vars PIERCE_PUBLIC_URL=https://voice.pierce.fund,PIERCE_CALENDAR_OWNER_EMAIL=voice@pierce.fund,GOOGLE_CALENDAR_ACCOUNT_EMAIL=voice@pierce.fund,GOOGLE_OAUTH_REDIRECT_URI=https://voice.pierce.fund/calendar/oauth/callback \
+  --set-secrets OPENAI_API_KEY=pierce-openai-api-key:latest,OPENAI_WEBHOOK_SECRET=pierce-openai-webhook-secret:latest,GOOGLE_CLIENT_SECRET=pierce-google-client-secret:latest,GOOGLE_CALENDAR_REFRESH_TOKEN=pierce-google-calendar-refresh-token:latest,HUBSPOT_SERVICE_KEY=pierce-hubspot-service-key:latest
+```
+
+Set `GOOGLE_CLIENT_ID` as a regular environment variable in Cloud Run or add it to the deploy command once the OAuth client is created. In the Google OAuth client, add this authorized redirect URI:
+
+```text
+https://voice.pierce.fund/calendar/oauth/callback
+```
+
+After deployment, update the OpenAI Realtime webhook endpoint to:
+
+```text
+https://voice.pierce.fund/webhooks/openai/realtime
+```
+
+The deploy command uses one always-on instance because Pierce's phone mode accepts a webhook and then keeps an outbound Realtime WebSocket alive. If you only use browser booking and check-in, you can remove `--min-instances=1` and `--no-cpu-throttling` to reduce cost.
+
+Cloud Run local storage is temporary. The default deployed `WORK_DIR` is `/tmp/pierce-work`, which is useful for a first online smoke test but not durable storage. For production use, move booking, check-in, recap, and sync JSONL records to a persistent store such as Cloud Storage, Firestore, or Cloud SQL, or run only one instance and accept that local files can be lost when the instance restarts.
+
 ## City Highlights Pilot
 
 The September pilot adds four focused Pierce functions while preserving the regular booking, check-in, and career-session experience:

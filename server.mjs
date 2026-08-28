@@ -9,7 +9,7 @@ import WebSocket from "ws";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const publicDir = join(__dirname, "public");
-const host = process.env.HOST || "127.0.0.1";
+const host = process.env.HOST || (process.env.K_SERVICE ? "0.0.0.0" : "127.0.0.1");
 const port = Number(process.env.PORT || 3000);
 const ownerTimezone = "America/Los_Angeles";
 const calendarOwnerEmail = process.env.PIERCE_CALENDAR_OWNER_EMAIL || "voice@pierce.fund";
@@ -19,7 +19,7 @@ const piercePublicUrl = (process.env.PIERCE_PUBLIC_URL || "https://voice.pierce.
 );
 const pierceCheckInUrl = `${piercePublicUrl}/check-in`;
 const sessionMinutes = 15;
-const workDir = process.env.WORK_DIR || join(__dirname, "work");
+const workDir = process.env.WORK_DIR || (process.env.K_SERVICE ? "/tmp/pierce-work" : join(__dirname, "work"));
 const bookingRequestsPath = join(workDir, "booking-requests.jsonl");
 const checkInRequestsPath = join(workDir, "check-in-requests.jsonl");
 const careerSessionsPath = join(workDir, "career-session-summaries.jsonl");
