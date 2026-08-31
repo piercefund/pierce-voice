@@ -53,6 +53,20 @@ printf '%s' 'YOUR_HUBSPOT_SERVICE_KEY' | gcloud secrets create pierce-hubspot-se
 Deploy from the repository root:
 
 ```bash
+PROJECT_ID="$(gcloud config get-value project)"
+PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
+PIERCE_STORAGE_BUCKET="${PROJECT_ID}-pierce-data"
+
+gcloud services enable storage.googleapis.com
+
+gcloud storage buckets create "gs://${PIERCE_STORAGE_BUCKET}" \
+  --location=us-west1 \
+  --uniform-bucket-level-access
+
+gcloud storage buckets add-iam-policy-binding "gs://${PIERCE_STORAGE_BUCKET}" \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role=roles/storage.objectAdmin
+
 gcloud run deploy pierce-voice \
   --source . \
   --allow-unauthenticated \
@@ -61,7 +75,7 @@ gcloud run deploy pierce-voice \
   --max-instances=1 \
   --no-cpu-throttling \
   --session-affinity \
-  --set-env-vars PIERCE_PUBLIC_URL=https://voice.pierce.fund,PIERCE_CALENDAR_OWNER_EMAIL=voice@pierce.fund,GOOGLE_CALENDAR_ACCOUNT_EMAIL=voice@pierce.fund,GOOGLE_OAUTH_REDIRECT_URI=https://voice.pierce.fund/calendar/oauth/callback \
+  --set-env-vars PIERCE_PUBLIC_URL=https://voice.pierce.fund,PIERCE_CALENDAR_OWNER_EMAIL=voice@pierce.fund,GOOGLE_CALENDAR_ACCOUNT_EMAIL=voice@pierce.fund,GOOGLE_OAUTH_REDIRECT_URI=https://voice.pierce.fund/calendar/oauth/callback,PIERCE_STORAGE_BUCKET="${PIERCE_STORAGE_BUCKET}",PIERCE_STORAGE_PREFIX=pierce-data \
   --set-secrets OPENAI_API_KEY=pierce-openai-api-key:latest,OPENAI_WEBHOOK_SECRET=pierce-openai-webhook-secret:latest,GOOGLE_CLIENT_SECRET=pierce-google-client-secret:latest,GOOGLE_CALENDAR_REFRESH_TOKEN=pierce-google-calendar-refresh-token:latest,HUBSPOT_SERVICE_KEY=pierce-hubspot-service-key:latest
 ```
 
@@ -79,7 +93,7 @@ https://voice.pierce.fund/webhooks/openai/realtime
 
 The deploy command uses one always-on instance because Pierce's phone mode accepts a webhook and then keeps an outbound Realtime WebSocket alive. If you only use browser booking and check-in, you can remove `--min-instances=1` and `--no-cpu-throttling` to reduce cost.
 
-Cloud Run local storage is temporary. The default deployed `WORK_DIR` is `/tmp/pierce-work`, which is useful for a first online smoke test but not durable storage. For production use, move booking, check-in, recap, and sync JSONL records to a persistent store such as Cloud Storage, Firestore, or Cloud SQL, or run only one instance and accept that local files can be lost when the instance restarts.
+When `PIERCE_STORAGE_BUCKET` is set, Pierce stores booking, check-in, career summary, event recap, email queue, and HubSpot sync JSONL records in that Cloud Storage bucket under `PIERCE_STORAGE_PREFIX`. Locally, or when the bucket is not set, Pierce still uses the ignored `work/` folder. Cloud Run local storage is temporary, so production deployments should keep `PIERCE_STORAGE_BUCKET` configured.
 
 ## City Highlights Pilot
 
@@ -100,7 +114,7 @@ export PIERCE_EVENT_DATE_LABEL="September 2026"
 export PIERCE_EVENT_LOCATION_LABEL="Cafe location shared with participants"
 ```
 
-Event records are stored in `work/event-intakes.jsonl`, `work/event-check-ins.jsonl`, and `work/event-session-summaries.jsonl`. Keep the `work/` folder private and persistent. The organizer review route is intentionally available only from the Pierce computer through `localhost`.
+Event records are stored in `work/event-intakes.jsonl`, `work/event-check-ins.jsonl`, and `work/event-session-summaries.jsonl` locally, or in Cloud Storage when `PIERCE_STORAGE_BUCKET` is set. Keep the `work/` folder private and persistent when running locally. The organizer review route is intentionally available only from the Pierce computer through `localhost`.
 
 ## Phone Setup
 
@@ -136,7 +150,7 @@ Pierce can also answer the Twilio number `+1 866-967-2844` (`1-86-OWNPATH-4`) th
 
 Optional phone settings are `PIERCE_PHONE_VOICE` (defaults to `marin`) and `PIERCE_PHONE_HANGUP_GRACE_MS` (defaults to `7000`). The phone model is fixed to `gpt-realtime-2.1`. Browser and phone audio use near-field noise reduction and balanced semantic turn detection. Automatic interruption is disabled so background sounds do not cut Pierce off.
 
-On an incoming call, the signed webhook accepts the supplied `call_id`, opens the server WebSocket, and lets the caller choose booking, check-in, or career guidance. A successful check-in can continue into the career session in the same call, where Pierce asks for the separate career-session consent. Calls close only after the final spoken confirmation and playback grace period.
+On an incoming call, the signed webhook accepts the supplied `call_id`, opens the server WebSocket, and lets the caller choose booking, check-in, or career guidance. A successful check-in can continue into the career session in the same call using the single check-in plus career consent. Calls close only after the final spoken confirmation and playback grace period.
 
 ## What It Does
 
@@ -148,7 +162,7 @@ On an incoming call, the signed webhook accepts the supplied `call_id`, opens th
 - In booking mode, the browser registers email verification, existing-booking lookup, cancellation, and booking-request tools with `session.update`.
 - In check-in mode, the browser registers `find_guest_session(guest_name, date)` and `prepare_check_in_request(guest_name, recording_consent, date, session_time, topic, booking_request_id)` with `session.update`.
 - In career mode, Pierce finds the guest's booking, asks for their city and exactly four discovery questions, recommends exactly one locally relevant event and one approved resource, and confirms one next step and date.
-- Career session summaries are saved to `work/career-session-summaries.jsonl`.
+- Career session summaries are saved to `work/career-session-summaries.jsonl` locally, or to the configured Cloud Storage bucket in Cloud Run.
 - With consent, Pierce sends the career summary from `voice@pierce.fund` and records the delivery in `work/follow-up-emails.jsonl`. If Gmail delivery is unavailable, the record is kept with status `pending_delivery` instead of being lost.
 - Career summaries stay out of the calendar invitation; the invitation remains focused on the appointment and check-in link.
 - Pierce selects exactly one resource from My Next Move, CareerOneStop, and O*NET OnLine.
@@ -156,11 +170,11 @@ On an incoming call, the signed webhook accepts the supplied `call_id`, opens th
 - Pierce collects email in parts, reads every character and punctuation mark back, and replaces the earlier value completely whenever the guest corrects it.
 - After the exact email is confirmed, Pierce checks for active bookings. A guest can keep, cancel, or replace an existing session, and the server prevents a second active booking from being saved.
 - Pierce starts with "Hi, welcome," gets recording consent first, leads one question at a time, and says a session is booked only after Google confirms the event and invitation.
-- Successful bookings and pending fallback requests are recorded in `work/booking-requests.jsonl`.
-- Check-ins ask for recording consent and the booking name, look up matching saved sessions, read back the date, time, and reason, then write pending admin updates to `work/check-in-requests.jsonl`.
+- Successful bookings and pending fallback requests are recorded in `work/booking-requests.jsonl` locally, or to the configured Cloud Storage bucket in Cloud Run.
+- Check-ins ask for recording consent and the booking name, look up matching saved sessions, read back the date, time, and reason, then write pending admin updates to `work/check-in-requests.jsonl` locally, or to the configured Cloud Storage bucket in Cloud Run.
 - Lookup times are shown and spoken in 12-hour Pacific time, such as `1:00 PM`.
 - After a successful check-in, the app carries the confirmed booking into `Career Session`, presents `Start career session`, and does not ask the guest to identify themselves again. The 15-minute timer begins only when the guest starts it.
-- Pierce asks separately for permission to record the brief check-in and permission to record and summarize the career session.
+- On phone calls, Pierce asks one combined consent for check-in plus the career session when the caller checks in and continues in the same call. In the browser flow, check-in and career session remain separate screens with clear consent prompts.
 - Automatic ending waits for the final response to finish and adds a playback grace period so check-in closings and next-step confirmations are not cut off.
 - Queue records include `queue_type` and a `check_in` flag: bookings use `check_in: false`; check-ins use `check_in: true`.
 - A check-in record includes an admin calendar note like `Admin note: Guest checked in at Jul 21, 2026, 1:05 PM.`

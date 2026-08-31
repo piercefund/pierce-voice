@@ -245,6 +245,143 @@ test("connected Calendar checks availability and sends one idempotent invitation
   }
 });
 
+test("bucket storage persists booking and career session records", async () => {
+  const objects = new Map();
+  let generation = 1;
+  const storage = createServer(async (req, res) => {
+    const url = new URL(req.url, "http://localhost");
+    const sendJson = (status, value) => {
+      res.writeHead(status, { "content-type": "application/json" });
+      res.end(JSON.stringify(value));
+    };
+
+    const objectPath = url.pathname.includes("/o/")
+      ? decodeURIComponent(url.pathname.split("/o/")[1])
+      : "";
+
+    if (req.method === "GET" && url.pathname.startsWith("/storage/v1/b/test-bucket/o/")) {
+      const object = objects.get(objectPath);
+      if (!object) {
+        sendJson(404, { error: { message: "Not found" } });
+        return;
+      }
+      if (url.searchParams.get("alt") === "media") {
+        res.writeHead(200, { "content-type": "application/x-ndjson; charset=utf-8" });
+        res.end(object.text);
+        return;
+      }
+      sendJson(200, { name: objectPath, generation: object.generation });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/upload/storage/v1/b/test-bucket/o") {
+      const name = url.searchParams.get("name");
+      const expectedGeneration = url.searchParams.get("ifGenerationMatch") || "0";
+      const current = objects.get(name);
+      const actualGeneration = current?.generation || "0";
+      if (actualGeneration !== expectedGeneration) {
+        sendJson(412, { error: { message: "Precondition failed" } });
+        return;
+      }
+
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const text = Buffer.concat(chunks).toString("utf8");
+      const nextGeneration = String(generation++);
+      objects.set(name, { text, generation: nextGeneration });
+      sendJson(200, { name, generation: nextGeneration });
+      return;
+    }
+
+    sendJson(404, { error: { message: "Unexpected storage mock request" } });
+  });
+
+  const storagePort = await listen(storage);
+  const appPort = await availablePort();
+  const workDir = await mkdtemp(join(tmpdir(), "pierce-storage-test-"));
+  const app = spawn(process.execPath, [join(projectDir, "server.mjs")], {
+    cwd: projectDir,
+    env: {
+      ...process.env,
+      PORT: String(appPort),
+      WORK_DIR: workDir,
+      PIERCE_STORAGE_BUCKET: "test-bucket",
+      PIERCE_STORAGE_PREFIX: "pierce-data",
+      GOOGLE_STORAGE_ACCESS_TOKEN: "storage-access-token",
+      GOOGLE_STORAGE_API_BASE: `http://127.0.0.1:${storagePort}/storage/v1`,
+      GOOGLE_STORAGE_UPLOAD_API_BASE: `http://127.0.0.1:${storagePort}/upload/storage/v1`
+    },
+    stdio: "ignore"
+  });
+
+  try {
+    const baseUrl = `http://127.0.0.1:${appPort}`;
+    await waitForServer(baseUrl);
+    const date = futureDate();
+    const bookedResponse = await fetch(`${baseUrl}/booking/request`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        guest_name: "Casey Robinson",
+        guest_email: "casey@example.com",
+        topic: "career planning",
+        date,
+        time: "2:00 PM",
+        recording_consent: true,
+        email_confirmed: true
+      })
+    });
+    const booked = await bookedResponse.json();
+    assert.equal(bookedResponse.status, 200);
+    assert.equal(booked.queued, true);
+
+    const careerResponse = await fetch(`${baseUrl}/career-session/complete`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        booking_request_id: booked.request_id,
+        guest_city: "Oakland",
+        useful_outcome: "pick a practical next role",
+        career_direction: "customer success",
+        strengths_experience: "service, follow-through, and communication",
+        primary_challenge: "narrowing the search",
+        recommended_event: {
+          name: "local customer success networking event",
+          format: "in person",
+          reason: "practice explaining the career direction"
+        },
+        resource_key: "career_one_stop",
+        next_step: "write a target role list",
+        next_step_target_date: "September 10, 2026",
+        next_step_confirmed: true,
+        recording_consent: true,
+        email_consent: false
+      })
+    });
+    const career = await careerResponse.json();
+    assert.equal(careerResponse.status, 200);
+    assert.equal(career.recommended_event.format, "in_person");
+    assert.equal(career.next_step_target_date, "2026-09-10");
+
+    const bookingObject = objects.get("pierce-data/booking-requests.jsonl");
+    assert.ok(bookingObject);
+    const bookingRows = bookingObject.text.trim().split("\n").map((line) => JSON.parse(line));
+    assert.equal(bookingRows.length, 1);
+    assert.equal(bookingRows[0].request_id, booked.request_id);
+
+    const sessionObject = objects.get("pierce-data/career-session-summaries.jsonl");
+    assert.ok(sessionObject);
+    const sessionRows = sessionObject.text.trim().split("\n").map((line) => JSON.parse(line));
+    assert.equal(sessionRows.length, 1);
+    assert.equal(sessionRows[0].booking_request_id, booked.request_id);
+    assert.equal(sessionRows[0].next_step.target_date, "2026-09-10");
+  } finally {
+    app.kill("SIGTERM");
+    await close(storage);
+    await rm(workDir, { recursive: true, force: true });
+  }
+});
+
 test("local OAuth setup stores only the verified Pierce Calendar refresh token", async () => {
   const google = createServer(async (req, res) => {
     res.writeHead(200, { "content-type": "application/json" });

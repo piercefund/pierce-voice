@@ -20,14 +20,22 @@ const piercePublicUrl = (process.env.PIERCE_PUBLIC_URL || "https://voice.pierce.
 const pierceCheckInUrl = `${piercePublicUrl}/check-in`;
 const sessionMinutes = 15;
 const workDir = process.env.WORK_DIR || (process.env.K_SERVICE ? "/tmp/pierce-work" : join(__dirname, "work"));
-const bookingRequestsPath = join(workDir, "booking-requests.jsonl");
-const checkInRequestsPath = join(workDir, "check-in-requests.jsonl");
-const careerSessionsPath = join(workDir, "career-session-summaries.jsonl");
-const followUpEmailsPath = join(workDir, "follow-up-emails.jsonl");
-const hubspotSyncsPath = join(workDir, "hubspot-syncs.jsonl");
-const eventIntakesPath = join(workDir, "event-intakes.jsonl");
-const eventCheckInsPath = join(workDir, "event-check-ins.jsonl");
-const eventSummariesPath = join(workDir, "event-session-summaries.jsonl");
+const storageBucket = process.env.PIERCE_STORAGE_BUCKET || "";
+const storagePrefix = (process.env.PIERCE_STORAGE_PREFIX || "pierce-data").replace(/^\/+|\/+$/g, "");
+const googleStorageApiBase = (
+  process.env.GOOGLE_STORAGE_API_BASE || "https://storage.googleapis.com/storage/v1"
+).replace(/\/$/, "");
+const googleStorageUploadApiBase = (
+  process.env.GOOGLE_STORAGE_UPLOAD_API_BASE || "https://storage.googleapis.com/upload/storage/v1"
+).replace(/\/$/, "");
+const bookingRequestsPath = dataPath("booking-requests.jsonl");
+const checkInRequestsPath = dataPath("check-in-requests.jsonl");
+const careerSessionsPath = dataPath("career-session-summaries.jsonl");
+const followUpEmailsPath = dataPath("follow-up-emails.jsonl");
+const hubspotSyncsPath = dataPath("hubspot-syncs.jsonl");
+const eventIntakesPath = dataPath("event-intakes.jsonl");
+const eventCheckInsPath = dataPath("event-check-ins.jsonl");
+const eventSummariesPath = dataPath("event-session-summaries.jsonl");
 const hubspotServiceKey = process.env.HUBSPOT_SERVICE_KEY || "";
 const hubspotApiBase = process.env.HUBSPOT_API_BASE || "https://api.hubapi.com";
 const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
@@ -81,6 +89,11 @@ const processedWebhookIds = new Map();
 const activePhoneCalls = new Map();
 const googleOAuthStates = new Map();
 let googleAccessTokenCache = { token: "", expiresAt: 0, refreshToken: "" };
+let googleStorageTokenCache = { token: "", expiresAt: 0 };
+
+function dataPath(filename) {
+  return storageBucket ? filename : join(workDir, filename);
+}
 
 function realtimeAudioInput() {
   return {
@@ -659,16 +672,114 @@ function nameKey(name) {
     .replace(/\s+/g, " ");
 }
 
+function storageObjectName(path) {
+  return storagePrefix ? `${storagePrefix}/${path}` : path;
+}
+
+async function googleStorageAccessToken() {
+  if (process.env.GOOGLE_STORAGE_ACCESS_TOKEN) return process.env.GOOGLE_STORAGE_ACCESS_TOKEN;
+  if (googleStorageTokenCache.token && googleStorageTokenCache.expiresAt > Date.now() + 60000) {
+    return googleStorageTokenCache.token;
+  }
+
+  const response = await fetch(
+    "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+    { headers: { "Metadata-Flavor": "Google" } }
+  );
+  if (!response.ok) {
+    throw new Error(`Storage token request failed with ${response.status}`);
+  }
+  const data = await response.json();
+  googleStorageTokenCache = {
+    token: data.access_token,
+    expiresAt: Date.now() + Number(data.expires_in || 300) * 1000
+  };
+  return googleStorageTokenCache.token;
+}
+
+async function readStorageObject(path) {
+  const token = await googleStorageAccessToken();
+  const objectName = storageObjectName(path);
+  const metadataUrl =
+    `${googleStorageApiBase}/b/${encodeURIComponent(storageBucket)}/o/${encodeURIComponent(objectName)}`;
+  const metadataResponse = await fetch(metadataUrl, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+
+  if (metadataResponse.status === 404) return { text: "", generation: "0" };
+  if (!metadataResponse.ok) {
+    throw new Error(`Storage metadata read failed with ${metadataResponse.status}`);
+  }
+
+  const metadata = await metadataResponse.json();
+  const mediaResponse = await fetch(`${metadataUrl}?alt=media`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!mediaResponse.ok) {
+    throw new Error(`Storage object read failed with ${mediaResponse.status}`);
+  }
+
+  return { text: await mediaResponse.text(), generation: String(metadata.generation || "0") };
+}
+
+async function writeStorageObject(path, text, generation) {
+  const token = await googleStorageAccessToken();
+  const objectName = storageObjectName(path);
+  const url =
+    `${googleStorageUploadApiBase}/b/${encodeURIComponent(storageBucket)}/o` +
+    `?uploadType=media&name=${encodeURIComponent(objectName)}` +
+    `&ifGenerationMatch=${encodeURIComponent(generation || "0")}`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "content-type": "application/x-ndjson; charset=utf-8"
+    },
+    body: text
+  });
+  if (!response.ok) {
+    const error = new Error(`Storage object write failed with ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+}
+
+async function appendStorageJsonLine(path, record) {
+  const line = `${JSON.stringify(record)}\n`;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const current = await readStorageObject(path);
+    try {
+      await writeStorageObject(path, `${current.text}${line}`, current.generation);
+      return;
+    } catch (error) {
+      if (![409, 412].includes(error.status) || attempt === 2) throw error;
+    }
+  }
+}
+
 async function readJsonLines(path) {
   try {
-    const text = await readFile(path, "utf8");
+    const text = storageBucket
+      ? (await readStorageObject(path)).text
+      : await readFile(path, "utf8");
     return text
       .split("\n")
       .filter(Boolean)
       .map((line) => JSON.parse(line));
-  } catch {
-    return [];
+  } catch (error) {
+    if (!storageBucket || error.code === "ENOENT") return [];
+    throw error;
   }
+}
+
+async function appendJsonLine(path, record) {
+  if (storageBucket) {
+    await appendStorageJsonLine(path, record);
+    return;
+  }
+
+  await mkdir(workDir, { recursive: true });
+  await appendFile(path, `${JSON.stringify(record)}\n`);
 }
 
 function readBookingRequests() {
@@ -1021,17 +1132,13 @@ async function syncBookingToHubspot(booking) {
   if (completed) return { ...completed, duplicate: true };
 
   const syncId = `CRM-${Date.now().toString(36).toUpperCase()}`;
-  await mkdir(workDir, { recursive: true });
-  await appendFile(
-    hubspotSyncsPath,
-    `${JSON.stringify({
-      sync_id: syncId,
-      created_at: new Date().toISOString(),
-      source_type: "booking",
-      source_id: booking.request_id,
-      status: "syncing"
-    })}\n`
-  );
+  await appendJsonLine(hubspotSyncsPath, {
+    sync_id: syncId,
+    created_at: new Date().toISOString(),
+    source_type: "booking",
+    source_id: booking.request_id,
+    status: "syncing"
+  });
 
   try {
     const contact = await upsertHubspotBookingContact(booking);
@@ -1064,21 +1171,18 @@ async function syncBookingToHubspot(booking) {
       hubspot_contact_id: contact.id,
       hubspot_note_id: note.id
     };
-    await appendFile(hubspotSyncsPath, `${JSON.stringify(result)}\n`);
+    await appendJsonLine(hubspotSyncsPath, result);
     return result;
   } catch (error) {
-    await appendFile(
-      hubspotSyncsPath,
-      `${JSON.stringify({
-        sync_id: syncId,
-        completed_at: new Date().toISOString(),
-        source_type: "booking",
-        source_id: booking.request_id,
-        status: "failed",
-        error_status: error.status || 500,
-        error: error.message
-      })}\n`
-    );
+    await appendJsonLine(hubspotSyncsPath, {
+      sync_id: syncId,
+      completed_at: new Date().toISOString(),
+      source_type: "booking",
+      source_id: booking.request_id,
+      status: "failed",
+      error_status: error.status || 500,
+      error: error.message
+    });
     throw error;
   }
 }
@@ -1094,18 +1198,14 @@ async function syncCareerSessionToHubspot(session, booking) {
   if (completed) return { ...completed, duplicate: true };
 
   const syncId = `CRM-${Date.now().toString(36).toUpperCase()}`;
-  await mkdir(workDir, { recursive: true });
-  await appendFile(
-    hubspotSyncsPath,
-    `${JSON.stringify({
-      sync_id: syncId,
-      created_at: new Date().toISOString(),
-      source_type: "career_session",
-      source_id: session.session_id,
-      booking_request_id: session.booking_request_id,
-      status: "syncing"
-    })}\n`
-  );
+  await appendJsonLine(hubspotSyncsPath, {
+    sync_id: syncId,
+    created_at: new Date().toISOString(),
+    source_type: "career_session",
+    source_id: session.session_id,
+    booking_request_id: session.booking_request_id,
+    status: "syncing"
+  });
 
   try {
     const bookingSync = [...syncRows].reverse().find(
@@ -1156,22 +1256,19 @@ async function syncCareerSessionToHubspot(session, booking) {
       hubspot_contact_id: contact.id,
       hubspot_note_id: note.id
     };
-    await appendFile(hubspotSyncsPath, `${JSON.stringify(result)}\n`);
+    await appendJsonLine(hubspotSyncsPath, result);
     return result;
   } catch (error) {
-    await appendFile(
-      hubspotSyncsPath,
-      `${JSON.stringify({
-        sync_id: syncId,
-        completed_at: new Date().toISOString(),
-        source_type: "career_session",
-        source_id: session.session_id,
-        booking_request_id: session.booking_request_id,
-        status: "failed",
-        error_status: error.status || 500,
-        error: error.message
-      })}\n`
-    );
+    await appendJsonLine(hubspotSyncsPath, {
+      sync_id: syncId,
+      completed_at: new Date().toISOString(),
+      source_type: "career_session",
+      source_id: session.session_id,
+      booking_request_id: session.booking_request_id,
+      status: "failed",
+      error_status: error.status || 500,
+      error: error.message
+    });
     throw error;
   }
 }
@@ -1263,18 +1360,14 @@ async function syncEventRecordToHubspot(sourceType, record) {
 
   const guest = eventGuest(record);
   const syncId = `CRM-${Date.now().toString(36).toUpperCase()}`;
-  await mkdir(workDir, { recursive: true });
-  await appendFile(
-    hubspotSyncsPath,
-    `${JSON.stringify({
-      sync_id: syncId,
-      created_at: new Date().toISOString(),
-      source_type: sourceType,
-      source_id: sourceId,
-      event_slug: record.event?.slug || pilotEvent.slug,
-      status: "syncing"
-    })}\n`
-  );
+  await appendJsonLine(hubspotSyncsPath, {
+    sync_id: syncId,
+    created_at: new Date().toISOString(),
+    source_type: sourceType,
+    source_id: sourceId,
+    event_slug: record.event?.slug || pilotEvent.slug,
+    status: "syncing"
+  });
 
   try {
     const contact = await upsertHubspotBookingContact({ guest });
@@ -1307,21 +1400,18 @@ async function syncEventRecordToHubspot(sourceType, record) {
       hubspot_contact_id: contact.id,
       hubspot_note_id: note.id
     };
-    await appendFile(hubspotSyncsPath, `${JSON.stringify(result)}\n`);
+    await appendJsonLine(hubspotSyncsPath, result);
     return result;
   } catch (error) {
-    await appendFile(
-      hubspotSyncsPath,
-      `${JSON.stringify({
-        sync_id: syncId,
-        completed_at: new Date().toISOString(),
-        source_type: sourceType,
-        source_id: sourceId,
-        status: "failed",
-        error_status: error.status || 500,
-        error: error.message
-      })}\n`
-    );
+    await appendJsonLine(hubspotSyncsPath, {
+      sync_id: syncId,
+      completed_at: new Date().toISOString(),
+      source_type: sourceType,
+      source_id: sourceId,
+      status: "failed",
+      error_status: error.status || 500,
+      error: error.message
+    });
     throw error;
   }
 }
@@ -1550,8 +1640,7 @@ async function handleEventParticipantIntake(req, res) {
     email_confirmed: true
   };
 
-  await mkdir(workDir, { recursive: true });
-  await appendFile(eventIntakesPath, `${JSON.stringify(intake)}\n`);
+  await appendJsonLine(eventIntakesPath, intake);
 
   let hubspotSync = { status: "skipped", reason: "hubspot_service_key_not_set" };
   if (hubspotServiceKey) {
@@ -1611,8 +1700,7 @@ async function handleEventMentorIntake(req, res) {
     email_confirmed: true
   };
 
-  await mkdir(workDir, { recursive: true });
-  await appendFile(eventIntakesPath, `${JSON.stringify(intake)}\n`);
+  await appendJsonLine(eventIntakesPath, intake);
 
   let hubspotSync = { status: "skipped", reason: "hubspot_service_key_not_set" };
   if (hubspotServiceKey) {
@@ -1711,8 +1799,7 @@ async function handleEventCheckIn(req, res) {
     career_goal: intake.career_goal,
     recording_consent: true
   };
-  await mkdir(workDir, { recursive: true });
-  await appendFile(eventCheckInsPath, `${JSON.stringify(checkIn)}\n`);
+  await appendJsonLine(eventCheckInsPath, checkIn);
 
   let hubspotSync = { status: "skipped", reason: "hubspot_service_key_not_set" };
   if (hubspotServiceKey) {
@@ -1807,8 +1894,7 @@ async function handleEventSummary(req, res) {
     recording_consent: true,
     email_consent: body.email_consent
   };
-  await mkdir(workDir, { recursive: true });
-  await appendFile(eventSummariesPath, `${JSON.stringify(summary)}\n`);
+  await appendJsonLine(eventSummariesPath, summary);
 
   sendJson(req, res, 200, {
     ok: true,
@@ -1893,7 +1979,7 @@ async function handleEventReviewApproval(req, res) {
       emailQueued = true;
       console.error(`[email] event summary ${summary.summary_id} queued: ${error.message}`);
     }
-    await appendFile(followUpEmailsPath, `${JSON.stringify(email)}\n`);
+    await appendJsonLine(followUpEmailsPath, email);
   }
 
   const approvedRecord = {
@@ -1907,7 +1993,7 @@ async function handleEventReviewApproval(req, res) {
     email_sent: emailSent,
     email_queued: emailQueued
   };
-  await appendFile(eventSummariesPath, `${JSON.stringify(approvedRecord)}\n`);
+  await appendJsonLine(eventSummariesPath, approvedRecord);
 
   let hubspotSync = { status: "skipped", reason: "hubspot_service_key_not_set" };
   if (hubspotServiceKey) {
@@ -2014,8 +2100,7 @@ async function handleBookingCancellation(req, res) {
     cancellation_confirmed: true
   };
 
-  await mkdir(workDir, { recursive: true });
-  await appendFile(bookingRequestsPath, `${JSON.stringify(cancellation)}\n`);
+  await appendJsonLine(bookingRequestsPath, cancellation);
 
   sendJson(req, res, 200, {
     ok: true,
@@ -2149,8 +2234,7 @@ async function handleBookingRequest(req, res) {
     }
   }
 
-  await mkdir(workDir, { recursive: true });
-  await appendFile(bookingRequestsPath, `${JSON.stringify(request)}\n`);
+  await appendJsonLine(bookingRequestsPath, request);
 
   let hubspotSync = {
     status: hubspotServiceKey ? "failed" : "skipped",
@@ -2240,8 +2324,7 @@ async function handleCheckInRequest(req, res) {
     admin_calendar_note: `Admin note: Guest checked in at ${checkedInAt}.`
   };
 
-  await mkdir(workDir, { recursive: true });
-  await appendFile(checkInRequestsPath, `${JSON.stringify(request)}\n`);
+  await appendJsonLine(checkInRequestsPath, request);
 
   sendJson(req, res, 200, {
     ok: true,
@@ -2450,8 +2533,6 @@ async function handleCareerSessionCompletion(req, res) {
     email_queued: false
   };
 
-  await mkdir(workDir, { recursive: true });
-
   let emailId = "";
   if (body.email_consent === true) {
     const email = {
@@ -2485,10 +2566,10 @@ async function handleCareerSessionCompletion(req, res) {
       session.email_queued = true;
       console.error(`[email] ${email.email_id} queued after delivery failed: ${error.message}`);
     }
-    await appendFile(followUpEmailsPath, `${JSON.stringify(email)}\n`);
+    await appendJsonLine(followUpEmailsPath, email);
   }
 
-  await appendFile(careerSessionsPath, `${JSON.stringify(session)}\n`);
+  await appendJsonLine(careerSessionsPath, session);
 
   sendJson(req, res, 200, {
     ok: true,
