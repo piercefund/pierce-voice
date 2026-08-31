@@ -131,6 +131,8 @@ const careerResources = {
 };
 const careerEmailFollowUpInstructions =
   "For the follow-up, ignore any earlier instruction about adding notes to the calendar invitation. Keep the calendar invitation unchanged. After the guest confirms the next step, ask only: \"May I email a short summary, event, resource, and next step to the address from your booking?\" Wait for a clear answer, then call complete_career_session with email_consent set to that answer. Do not ask a calendar-sharing question. After saving, say the complete closing response exactly and do not shorten it.";
+const phoneSimpleGuidanceInstructions =
+  " On phone calls, make each question simple and give one short example when it helps the caller know what kind of answer to give. Keep examples brief, then wait. For email, collect it in pieces: first ask for the part before the at sign, then ask: \"What provider comes after the at sign, like Gmail, Yahoo, or Hotmail?\", then ask for the ending, like dot com or dot org. For the career goal question, ask: \"What would make this session useful today? For example, getting a connection to someone in that career, understanding the training path, choosing a next role, or finding one event to attend.\" For city, say: \"What city are you in? For example, San Diego, California.\" For strengths, say: \"What strengths or experience could help? For example, sales, customer service, caregiving, leadership, or working with numbers.\" For challenges, say: \"What feels hardest right now? For example, choosing a path, finding training, meeting someone in the field, or knowing what to do next.\" Do not list more than four examples for one question, and do not turn examples into extra questions.";
 
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
@@ -3316,6 +3318,7 @@ function phoneInstructionsForJourney(journey, context) {
   }
   instructions +=
     " This is a phone call. The caller already heard the general Pierce welcome and selected this service, so do not repeat the opening greeting. Never mention software, internal records, or identifiers. Treat brief background sounds, line noise, and side chatter as silence unless the caller clearly addresses Pierce. Do not restart a question or repeat earlier questions just because there was noise.";
+  instructions += phoneSimpleGuidanceInstructions;
   if (journey === "career" && !context?.booking_request_id) {
     instructions += ` ${careerEmailFollowUpInstructions}`;
   }

@@ -233,6 +233,14 @@ test("signed incoming call reuses Pierce tools and ignores duplicate delivery", 
     assert.ok(bookingUpdate.session.tools.some((tool) => tool.name === "prepare_booking_request"));
     assert.equal(bookingUpdate.session.audio.input.noise_reduction.type, "near_field");
     assert.equal(bookingUpdate.session.audio.input.turn_detection.interrupt_response, false);
+    assert.match(
+      bookingUpdate.session.instructions,
+      /What provider comes after the at sign, like Gmail, Yahoo, or Hotmail/
+    );
+    assert.match(
+      bookingUpdate.session.instructions,
+      /getting a connection to someone in that career/
+    );
 
     socket.send(
       JSON.stringify({
@@ -307,6 +315,11 @@ test("signed incoming call reuses Pierce tools and ignores duplicate delivery", 
     );
     assert.match(careerHandoffUpdate.session.instructions, /Do not ask for consent again/);
     assert.doesNotMatch(careerHandoffUpdate.session.instructions, /second, separate consent/i);
+    assert.match(
+      careerHandoffUpdate.session.instructions,
+      /What would make this session useful today/
+    );
+    assert.match(careerHandoffUpdate.session.instructions, /For example, San Diego, California/);
     assert.ok(
       careerHandoffUpdate.session.tools.some((tool) => tool.name === "complete_career_session")
     );
