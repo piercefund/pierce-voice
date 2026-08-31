@@ -65,6 +65,11 @@ const googleOAuthScopes = [
   googleGmailSendScope
 ];
 const openaiApiBase = process.env.OPENAI_API_BASE || "https://api.openai.com";
+const careerResearchEnabled = process.env.PIERCE_RESEARCH_ENABLED === "true";
+const careerResearchModel = process.env.PIERCE_RESEARCH_MODEL || "gpt-5";
+const careerResearchTimeoutMs = Number(process.env.PIERCE_RESEARCH_TIMEOUT_MS || 12000);
+const careerResearchWebSearchTool =
+  process.env.PIERCE_RESEARCH_WEB_SEARCH_TOOL || "web_search";
 const openaiRealtimeWsUrl =
   process.env.OPENAI_REALTIME_WS_URL || "wss://api.openai.com/v1/realtime";
 const phoneWebhookPath = "/webhooks/openai/realtime";
@@ -1508,11 +1513,289 @@ async function handleHubspotCareerSessionSync(req, res) {
   }
 }
 
-function buildFollowUpEmail({ guest, discovery, recommendedEvent, nextStep, resource }) {
+function compactText(value, maxLength = 800) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 1).trim()}...`;
+}
+
+function titleCasePhrase(value) {
+  return compactText(value)
+    .toLowerCase()
+    .replace(/\b[a-z]/g, (letter) => letter.toUpperCase())
+    .replace(/\bAi\b/g, "AI")
+    .replace(/\bCna\b/g, "CNA")
+    .replace(/\bLvn\b/g, "LVN")
+    .replace(/\bRn\b/g, "RN");
+}
+
+function careerSubjectTopic({ discovery = {}, booking = {} } = {}) {
+  const rawTopic =
+    discovery.career_direction ||
+    booking.topic ||
+    booking.guest?.topic ||
+    "career";
+  const cleaned = compactText(rawTopic)
+    .replace(/\bsession\b/gi, "")
+    .replace(/\bcareer\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const base = titleCasePhrase(cleaned || "Career");
+  return /\bcareer\b/i.test(base) ? base : `${base} Career`;
+}
+
+function normalizedComparable(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function normalizedEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function ordinalSuffix(number) {
+  const value = Number(number);
+  const tens = value % 100;
+  if (tens >= 11 && tens <= 13) return "th";
+  switch (value % 10) {
+    case 1:
+      return "st";
+    case 2:
+      return "nd";
+    case 3:
+      return "rd";
+    default:
+      return "th";
+  }
+}
+
+function careerSessionOccurrenceLabel(occurrence) {
+  const labels = [
+    "",
+    "Initial Session",
+    "Second Session",
+    "Third Session",
+    "Fourth Session",
+    "Fifth Session",
+    "Sixth Session",
+    "Seventh Session",
+    "Eighth Session",
+    "Ninth Session",
+    "Tenth Session"
+  ];
+  return labels[occurrence] || `${occurrence}${ordinalSuffix(occurrence)} Session`;
+}
+
+function careerSessionOccurrence({ existingSessions, guestEmail, subjectTopic, bookingRequestId }) {
+  const guestKey = normalizedEmail(guestEmail);
+  const topicKey = normalizedComparable(subjectTopic);
+  const priorCount = existingSessions.filter((session) => {
+    if (session.status !== "completed") return false;
+    if (session.booking_request_id === bookingRequestId) return false;
+    if (normalizedEmail(session.guest?.email) !== guestKey) return false;
+    const sessionTopic = session.subject_topic || careerSubjectTopic(session);
+    return normalizedComparable(sessionTopic) === topicKey;
+  }).length;
+  return priorCount + 1;
+}
+
+function careerEmailSubject(subjectTopic, occurrenceLabel) {
+  return `${subjectTopic} - ${occurrenceLabel}`;
+}
+
+function openAiResponseText(responseBody) {
+  if (typeof responseBody?.output_text === "string") return responseBody.output_text;
+  const parts = [];
+  for (const output of responseBody?.output || []) {
+    for (const content of output.content || []) {
+      if (typeof content.text === "string") parts.push(content.text);
+      if (typeof content.output_text === "string") parts.push(content.output_text);
+    }
+  }
+  return parts.join("\n").trim();
+}
+
+function parseJsonObjectText(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {}
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try {
+    return JSON.parse(raw.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+function cleanHttpUrl(value) {
+  const text = compactText(value, 500);
+  if (!text) return "";
+  try {
+    const url = new URL(text);
+    return ["http:", "https:"].includes(url.protocol) ? url.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
+function cleanResearchItem(item) {
+  if (!item || typeof item !== "object") return null;
+  const cleaned = {
+    name: compactText(item.name, 160),
+    url: cleanHttpUrl(item.url),
+    reason: compactText(item.reason, 500),
+    format: normalizeEventFormat(item.format)
+  };
+  if (!cleaned.name || !cleaned.reason) return null;
+  return cleaned;
+}
+
+function cleanCareerResearchEnhancement(value) {
+  if (!value || typeof value !== "object") return null;
+  const targetedResource = cleanResearchItem(value.targeted_resource);
+  const targetedEvent = cleanResearchItem(value.targeted_event);
+  const notes = Array.isArray(value.search_notes)
+    ? value.search_notes.map((item) => compactText(item, 240)).filter(Boolean).slice(0, 3)
+    : [];
+  const cleaned = {
+    summary: compactText(value.summary, 900),
+    targeted_resource: targetedResource,
+    targeted_event: targetedEvent,
+    next_step_context: compactText(value.next_step_context, 700),
+    search_notes: notes
+  };
+  if (
+    !cleaned.summary &&
+    !cleaned.targeted_resource &&
+    !cleaned.targeted_event &&
+    !cleaned.next_step_context
+  ) {
+    return null;
+  }
+  return cleaned;
+}
+
+function careerResearchContext({ booking, discovery, recommendedEvent, nextStep, resource, priorSessions }) {
+  return {
+    guest_city: discovery.guest_city,
+    career_direction: discovery.career_direction,
+    useful_outcome: discovery.useful_outcome,
+    strengths_experience: discovery.strengths_experience,
+    primary_challenge: discovery.primary_challenge,
+    booking_topic: booking.guest?.topic || booking.topic || "",
+    recommended_event: recommendedEvent,
+    approved_resource: {
+      name: resource.name,
+      url: resource.url,
+      description: resource.description
+    },
+    confirmed_next_step: {
+      action: nextStep.action,
+      target_date: nextStep.target_date
+    },
+    prior_sessions: priorSessions
+      .filter((session) => session.status === "completed")
+      .slice(-3)
+      .map((session) => ({
+        completed_at: session.completed_at || session.created_at || "",
+        subject_topic: session.subject_topic || careerSubjectTopic(session),
+        useful_outcome: session.discovery?.useful_outcome || "",
+        next_step: session.next_step?.action || "",
+        next_step_target_date: session.next_step?.target_date || ""
+      }))
+  };
+}
+
+async function buildCareerResearchEnhancement(args) {
+  if (!careerResearchEnabled || !process.env.OPENAI_API_KEY) return null;
+  const tools = careerResearchWebSearchTool
+    ? [{ type: careerResearchWebSearchTool, search_context_size: "low" }]
+    : [];
+  const payload = {
+    model: careerResearchModel,
+    tools,
+    input: [
+      {
+        role: "system",
+        content:
+          "You help Pierce write career-session follow-up emails. Use current web research when available. Return only compact JSON. Do not invent events, URLs, dates, or organizations. If a live event cannot be verified, use a trusted local events or workforce page instead."
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          task:
+            "Create a research-backed follow-up enhancement with exactly one targeted resource, exactly one targeted event or trusted event page, and practical context for the guest's next step.",
+          required_json_shape: {
+            summary: "2-4 sentences grounded in the session details and any useful research",
+            targeted_resource: { name: "", url: "", reason: "" },
+            targeted_event: { name: "", format: "online or in_person", url: "", reason: "" },
+            next_step_context: "Briefly explain why the confirmed next step is useful now.",
+            search_notes: ["Optional short notes about why the recommendations were chosen."]
+          },
+          session: careerResearchContext(args)
+        })
+      }
+    ]
+  };
+
+  try {
+    const response = await fetch(`${openaiApiBase}/v1/responses`, {
+      method: "POST",
+      signal: AbortSignal.timeout(careerResearchTimeoutMs),
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      console.error(
+        `[research] follow-up enhancement skipped: ${response.status} ${body.error?.message || ""}`.trim()
+      );
+      return null;
+    }
+    return cleanCareerResearchEnhancement(parseJsonObjectText(openAiResponseText(body)));
+  } catch (error) {
+    console.error(`[research] follow-up enhancement skipped: ${error.message}`);
+    return null;
+  }
+}
+
+function buildFollowUpEmail({
+  guest,
+  discovery,
+  recommendedEvent,
+  nextStep,
+  resource,
+  subjectTopic,
+  sessionOccurrenceLabel,
+  research
+}) {
+  const researchEvent = research?.targeted_event;
+  const researchResource = research?.targeted_resource;
+  const event = researchEvent || recommendedEvent;
+  const resourceItem = researchResource || resource;
+  const eventLines = [
+    `${event.name} (${eventFormatLabel(event.format)})`,
+    event.url ? event.url : "",
+    event.reason
+  ].filter(Boolean);
+  const resourceLines = [
+    `${resourceItem.name}${resourceItem.url ? `: ${resourceItem.url}` : ""}`,
+    resourceItem.reason || resourceItem.description
+  ].filter(Boolean);
+
   return [
     `Hi ${firstName(guest.name)},`,
     "",
     "Thank you for meeting with Pierce.",
+    "",
+    "Session focus",
+    `${subjectTopic} - ${sessionOccurrenceLabel}`,
     "",
     "Your goal",
     discovery.useful_outcome,
@@ -1520,19 +1803,19 @@ function buildFollowUpEmail({ guest, discovery, recommendedEvent, nextStep, reso
     "Your location",
     discovery.guest_city,
     "",
-    "What we heard",
-    `You are considering ${discovery.career_direction}. Your strengths and experience include ${discovery.strengths_experience}. Your main challenge is ${discovery.primary_challenge}.`,
+    research?.summary ? "Research-backed summary" : "What we heard",
+    research?.summary ||
+      `You are considering ${discovery.career_direction}. Your strengths and experience include ${discovery.strengths_experience}. Your main challenge is ${discovery.primary_challenge}.`,
     "",
-    "Recommended event",
-    `${recommendedEvent.name} (${eventFormatLabel(recommendedEvent.format)})`,
-    recommendedEvent.reason,
+    researchEvent ? "Targeted event" : "Recommended event",
+    ...eventLines,
     "",
-    "Your next step",
+    researchResource ? "Targeted resource" : "Recommended resource",
+    ...resourceLines,
+    "",
+    "Your confirmed next step",
     `${nextStep.action} by ${nextStep.target_date}.`,
-    "",
-    "Recommended resource",
-    `${resource.name}: ${resource.url}`,
-    resource.description,
+    ...(research?.next_step_context ? ["", "Why this next step matters", research.next_step_context] : []),
     "",
     "You have taken a useful next step. Keep going.",
     "",
@@ -2498,6 +2781,11 @@ async function handleCareerSessionCompletion(req, res) {
       session_id: existing.session_id,
       email_sent: existing.email_sent === true,
       email_queued: existing.email_queued === true,
+      email_subject: existing.email_subject || "",
+      subject_topic: existing.subject_topic || "",
+      session_occurrence: existing.session_occurrence || null,
+      session_occurrence_label: existing.session_occurrence_label || "",
+      research_enhanced: existing.research_enhanced === true,
       calendar_update_queued: false
     });
     return;
@@ -2505,6 +2793,25 @@ async function handleCareerSessionCompletion(req, res) {
 
   const resource = careerResources[body.resource_key];
   const completedAt = new Date().toISOString();
+  const subjectTopic = careerSubjectTopic({ discovery, booking });
+  const sessionOccurrence = careerSessionOccurrence({
+    existingSessions,
+    guestEmail: booking.guest.email,
+    subjectTopic,
+    bookingRequestId
+  });
+  const sessionOccurrenceLabel = careerSessionOccurrenceLabel(sessionOccurrence);
+  const emailSubject = careerEmailSubject(subjectTopic, sessionOccurrenceLabel);
+  const research = await buildCareerResearchEnhancement({
+    booking,
+    discovery,
+    recommendedEvent,
+    nextStep,
+    resource,
+    priorSessions: existingSessions.filter(
+      (session) => normalizedEmail(session.guest?.email) === normalizedEmail(booking.guest.email)
+    )
+  });
   const session = {
     session_id: `SES-${Date.now().toString(36).toUpperCase()}`,
     created_at: completedAt,
@@ -2525,6 +2832,12 @@ async function handleCareerSessionCompletion(req, res) {
     recommended_event: recommendedEvent,
     next_step: nextStep,
     resource,
+    subject_topic: subjectTopic,
+    session_occurrence: sessionOccurrence,
+    session_occurrence_label: sessionOccurrenceLabel,
+    email_subject: emailSubject,
+    research_follow_up: research,
+    research_enhanced: research !== null,
     recording_consent: true,
     calendar_update_consent: false,
     calendar_update_queued: false,
@@ -2543,13 +2856,16 @@ async function handleCareerSessionCompletion(req, res) {
       career_session_id: session.session_id,
       booking_request_id: booking.request_id,
       to: booking.guest.email,
-      subject: "Your Pierce career session: next steps",
+      subject: emailSubject,
       body: buildFollowUpEmail({
         guest: booking.guest,
         discovery,
         recommendedEvent,
         nextStep,
-        resource
+        resource,
+        subjectTopic,
+        sessionOccurrenceLabel,
+        research
       }),
       consent_confirmed: true
     };
@@ -2582,7 +2898,12 @@ async function handleCareerSessionCompletion(req, res) {
     recommended_event: session.recommended_event,
     resource: session.resource,
     next_step: nextStep.action,
-    next_step_target_date: nextStep.target_date
+    next_step_target_date: nextStep.target_date,
+    email_subject: emailSubject,
+    subject_topic: subjectTopic,
+    session_occurrence: sessionOccurrence,
+    session_occurrence_label: sessionOccurrenceLabel,
+    research_enhanced: research !== null
   });
 }
 

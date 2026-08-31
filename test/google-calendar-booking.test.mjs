@@ -92,6 +92,31 @@ test("connected Calendar checks availability and sends one idempotent invitation
       send(200, { id: "gmail-message-1" });
       return;
     }
+    if (req.method === "POST" && req.url === "/v1/responses") {
+      send(200, {
+        output_text: JSON.stringify({
+          summary:
+            "Casey is comparing licensed vocational nursing as a practical healthcare path in San Diego. The strongest next move is to compare nearby programs by prerequisites, schedule, cost, and clinical placement support before choosing where to apply.",
+          targeted_resource: {
+            name: "San Diego Workforce Partnership",
+            url: "https://workforce.org/",
+            reason:
+              "It is a local workforce resource that can help Casey compare training support and career services in San Diego."
+          },
+          targeted_event: {
+            name: "San Diego healthcare career events page",
+            format: "in_person",
+            url: "https://workforce.org/events/",
+            reason:
+              "A local events page is safer than inventing a single unverified live listing and can surface healthcare training sessions near Casey."
+          },
+          next_step_context:
+            "Comparing two LVN programs gives Casey a concrete shortlist and reduces the risk of choosing a program before checking cost, schedule, and admission requirements.",
+          search_notes: ["Focused on San Diego workforce and healthcare training resources."]
+        })
+      });
+      return;
+    }
     send(404, { error: { message: "Unexpected Google mock request" } });
   });
 
@@ -111,7 +136,11 @@ test("connected Calendar checks availability and sends one idempotent invitation
       PIERCE_CALENDAR_OWNER_EMAIL: "voice@pierce.fund",
       GOOGLE_OAUTH_TOKEN_URL: `http://127.0.0.1:${googlePort}/token`,
       GOOGLE_CALENDAR_API_BASE: `http://127.0.0.1:${googlePort}/calendar/v3`,
-      GOOGLE_GMAIL_API_BASE: `http://127.0.0.1:${googlePort}/gmail/v1`
+      GOOGLE_GMAIL_API_BASE: `http://127.0.0.1:${googlePort}/gmail/v1`,
+      OPENAI_API_KEY: "test-openai-key",
+      OPENAI_API_BASE: `http://127.0.0.1:${googlePort}`,
+      PIERCE_RESEARCH_ENABLED: "true",
+      PIERCE_RESEARCH_MODEL: "gpt-test"
     },
     stdio: "ignore"
   });
@@ -195,6 +224,9 @@ test("connected Calendar checks availability and sends one idempotent invitation
     assert.equal(career.email_sent, true);
     assert.equal(career.email_queued, false);
     assert.equal(career.calendar_update_queued, false);
+    assert.equal(career.email_subject, "Licensed Vocational Nursing Career - Initial Session");
+    assert.equal(career.session_occurrence_label, "Initial Session");
+    assert.equal(career.research_enhanced, true);
 
     const gmailSend = requests.find(
       (request) => request.method === "POST" && request.url === "/gmail/v1/users/me/messages/send"
@@ -202,8 +234,17 @@ test("connected Calendar checks availability and sends one idempotent invitation
     assert.equal(gmailSend.authorization, "Bearer calendar-access-token");
     const emailText = Buffer.from(gmailSend.body.raw, "base64url").toString("utf8");
     assert.match(emailText, /To: casey@example\.com/);
-    assert.match(emailText, /Subject: Your Pierce career session: next steps/);
+    assert.match(emailText, /Subject: Licensed Vocational Nursing Career - Initial Session/);
+    assert.match(emailText, /Research-backed summary/);
+    assert.match(emailText, /San Diego Workforce Partnership/);
+    assert.match(emailText, /San Diego healthcare career events page/);
     assert.match(emailText, /Compare two LVN programs/);
+    assert.match(emailText, /Why this next step matters/);
+
+    const researchRequest = requests.find(
+      (request) => request.method === "POST" && request.url === "/v1/responses"
+    );
+    assert.equal(researchRequest.authorization, "Bearer test-openai-key");
 
     const unavailableResponse = await fetch(`${baseUrl}/booking/request`, {
       method: "POST",
@@ -248,6 +289,23 @@ test("connected Calendar checks availability and sends one idempotent invitation
 test("bucket storage persists booking and career session records", async () => {
   const objects = new Map();
   let generation = 1;
+  objects.set("pierce-data/career-session-summaries.jsonl", {
+    text:
+      JSON.stringify({
+        session_id: "SES-PRIOR",
+        created_at: "2026-08-01T12:00:00.000Z",
+        completed_at: "2026-08-01T12:00:00.000Z",
+        status: "completed",
+        booking_request_id: "BKG-PRIOR",
+        guest: { name: "Casey Robinson", email: "casey@example.com" },
+        booking: { date: "2026-08-01", time: "10:00", topic: "career planning" },
+        discovery: { career_direction: "customer success" },
+        subject_topic: "Customer Success Career",
+        session_occurrence: 1,
+        session_occurrence_label: "Initial Session"
+      }) + "\n",
+    generation: String(generation++)
+  });
   const storage = createServer(async (req, res) => {
     const url = new URL(req.url, "http://localhost");
     const sendJson = (status, value) => {
@@ -362,6 +420,9 @@ test("bucket storage persists booking and career session records", async () => {
     assert.equal(careerResponse.status, 200);
     assert.equal(career.recommended_event.format, "in_person");
     assert.equal(career.next_step_target_date, "2026-09-10");
+    assert.equal(career.email_subject, "Customer Success Career - Second Session");
+    assert.equal(career.session_occurrence, 2);
+    assert.equal(career.session_occurrence_label, "Second Session");
 
     const bookingObject = objects.get("pierce-data/booking-requests.jsonl");
     assert.ok(bookingObject);
@@ -372,9 +433,10 @@ test("bucket storage persists booking and career session records", async () => {
     const sessionObject = objects.get("pierce-data/career-session-summaries.jsonl");
     assert.ok(sessionObject);
     const sessionRows = sessionObject.text.trim().split("\n").map((line) => JSON.parse(line));
-    assert.equal(sessionRows.length, 1);
-    assert.equal(sessionRows[0].booking_request_id, booked.request_id);
-    assert.equal(sessionRows[0].next_step.target_date, "2026-09-10");
+    assert.equal(sessionRows.length, 2);
+    assert.equal(sessionRows[1].booking_request_id, booked.request_id);
+    assert.equal(sessionRows[1].next_step.target_date, "2026-09-10");
+    assert.equal(sessionRows[1].email_subject, "Customer Success Career - Second Session");
   } finally {
     app.kill("SIGTERM");
     await close(storage);
