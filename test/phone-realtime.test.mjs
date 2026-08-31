@@ -119,6 +119,36 @@ test("signed incoming call reuses Pierce tools and ignores duplicate delivery", 
       recording_consent: true
     })}\n`
   );
+  await writeFile(
+    join(workDir, "career-session-summaries.jsonl"),
+    `${JSON.stringify({
+      session_id: "SES-PHONE-PRIOR",
+      created_at: "2026-08-20T19:00:00.000Z",
+      completed_at: "2026-08-20T19:00:00.000Z",
+      status: "completed",
+      booking_request_id: "REQ-PHONE-PRIOR",
+      guest: {
+        name: "Kurling Robinson",
+        email: "kurling@fokcus.com"
+      },
+      booking: {
+        date: "2026-08-20",
+        time: "14:00",
+        topic: "Financial trading career"
+      },
+      discovery: {
+        useful_outcome: "learn whether financial brokerage is a realistic path",
+        career_direction: "financial trading"
+      },
+      next_step: {
+        action: "Connect with a current or retired Financial Broker",
+        target_date: "2026-08-27"
+      },
+      subject_topic: "Financial Trading Career",
+      session_occurrence: 1,
+      session_occurrence_label: "Initial Session"
+    })}\n`
+  );
   const app = spawn(process.execPath, [join(projectDir, "server.mjs")], {
     cwd: projectDir,
     env: {
@@ -281,9 +311,46 @@ test("signed incoming call reuses Pierce tools and ignores duplicate delivery", 
       careerHandoffUpdate.session.tools.some((tool) => tool.name === "complete_career_session")
     );
     assert.ok(
+      careerHandoffUpdate.session.tools.some((tool) => tool.name === "get_career_session_memory")
+    );
+    assert.ok(
+      careerHandoffUpdate.session.tools.some((tool) => tool.name === "verify_guest_email")
+    );
+    assert.ok(
       !careerHandoffUpdate.session.tools.some((tool) => tool.name === "find_career_session")
     );
     assert.equal(careerHandoffUpdate.session.audio.input.noise_reduction.type, "near_field");
+
+    socket.send(
+      JSON.stringify({
+        type: "response.function_call_arguments.done",
+        response_id: "response-memory",
+        call_id: "function-memory",
+        name: "get_career_session_memory",
+        arguments: JSON.stringify({
+          booking_request_id: "REQ-PHONE-CHECKIN",
+          guest_email: "kurling@fokcus.com",
+          email_confirmed: true
+        })
+      })
+    );
+    const memoryOutput = await waitFor(
+      () =>
+        socketEvents.find(
+          (event) =>
+            event.type === "conversation.item.create" &&
+            event.item.call_id === "function-memory"
+        ),
+      "Career memory did not return a tool result"
+    );
+    const memoryResult = JSON.parse(memoryOutput.item.output);
+    assert.equal(memoryResult.ok, true);
+    assert.equal(memoryResult.returning_guest, true);
+    assert.match(
+      memoryResult.previous_session.follow_up_question,
+      /current or retired Financial Broker/
+    );
+    assert.match(memoryResult.message, /previous_session_reflection/);
 
     socket.send(
       JSON.stringify({
@@ -298,6 +365,8 @@ test("signed incoming call reuses Pierce tools and ignores duplicate delivery", 
           career_direction: "operations leadership",
           strengths_experience: "organizing people and improving service quality",
           primary_challenge: "turning broad experience into a focused search",
+          previous_session_reflection:
+            "I spoke with a retired broker and learned the licensing path takes focused study.",
           recommended_event: {
             name: "local professional networking event",
             format: "in person",
@@ -330,9 +399,10 @@ test("signed incoming call reuses Pierce tools and ignores duplicate delivery", 
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));
-    assert.equal(savedSessions.length, 1);
-    assert.equal(savedSessions[0].booking_request_id, "REQ-PHONE-CHECKIN");
-    assert.equal(savedSessions[0].next_step.target_date, "2026-09-10");
+    assert.equal(savedSessions.length, 2);
+    assert.equal(savedSessions[1].booking_request_id, "REQ-PHONE-CHECKIN");
+    assert.equal(savedSessions[1].next_step.target_date, "2026-09-10");
+    assert.match(savedSessions[1].previous_session_reflection, /retired broker/);
   } finally {
     socket?.close();
     sockets.close();

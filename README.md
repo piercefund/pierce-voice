@@ -97,6 +97,8 @@ When `PIERCE_STORAGE_BUCKET` is set, Pierce stores booking, check-in, career sum
 
 Career follow-up emails use saved session history to name each message by occurrence, such as `Financial Trading Career - Initial Session` and `Financial Trading Career - Second Session`. When `PIERCE_RESEARCH_ENABLED=true`, Pierce also uses an extra OpenAI research pass to add one targeted local resource, one targeted local event or trusted event page, and brief context for the guest's next step. If the research pass is unavailable, the session still saves and the regular follow-up email is sent.
 
+For returning guests, Pierce can use the previous career-session summary to ask one follow-up question about the last confirmed next step before starting the new discovery questions. To protect privacy, Pierce unlocks that memory only after the guest confirms the exact email used for the current booking. The follow-up answer is saved as part of the new career-session summary.
+
 ## City Highlights Pilot
 
 The September pilot adds four focused Pierce functions while preserving the regular booking, check-in, and career-session experience:
@@ -165,6 +167,7 @@ On an incoming call, the signed webhook accepts the supplied `call_id`, opens th
 - In check-in mode, the browser registers `find_guest_session(guest_name, date)` and `prepare_check_in_request(guest_name, recording_consent, date, session_time, topic, booking_request_id)` with `session.update`.
 - In career mode, Pierce finds the guest's booking, asks for their city and exactly four discovery questions, recommends exactly one locally relevant event and one approved resource, and confirms one next step and date.
 - Career session summaries are saved to `work/career-session-summaries.jsonl` locally, or to the configured Cloud Storage bucket in Cloud Run.
+- Returning career sessions can include one follow-up question about the prior confirmed next step after the guest confirms the exact booking email. Pierce saves the answer with the new session.
 - With consent, Pierce sends the career summary from `voice@pierce.fund` and records the delivery in `work/follow-up-emails.jsonl`. The subject reflects the career focus and session occurrence. If Gmail delivery is unavailable, the record is kept with status `pending_delivery` instead of being lost.
 - Career summaries stay out of the calendar invitation; the invitation remains focused on the appointment and check-in link.
 - Pierce selects exactly one resource from My Next Move, CareerOneStop, and O*NET OnLine.

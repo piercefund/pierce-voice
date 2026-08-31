@@ -299,7 +299,14 @@ test("bucket storage persists booking and career session records", async () => {
         booking_request_id: "BKG-PRIOR",
         guest: { name: "Casey Robinson", email: "casey@example.com" },
         booking: { date: "2026-08-01", time: "10:00", topic: "career planning" },
-        discovery: { career_direction: "customer success" },
+        discovery: {
+          useful_outcome: "build a customer success target list",
+          career_direction: "customer success"
+        },
+        next_step: {
+          action: "Connect with one customer success manager",
+          target_date: "2026-08-15"
+        },
         subject_topic: "Customer Success Career",
         session_occurrence: 1,
         session_occurrence_label: "Initial Session"
@@ -393,6 +400,38 @@ test("bucket storage persists booking and career session records", async () => {
     assert.equal(bookedResponse.status, 200);
     assert.equal(booked.queued, true);
 
+    const deniedMemoryResponse = await fetch(`${baseUrl}/career-session/memory`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        booking_request_id: booked.request_id,
+        guest_email: "wrong@example.com",
+        email_confirmed: true
+      })
+    });
+    const deniedMemory = await deniedMemoryResponse.json();
+    assert.equal(deniedMemoryResponse.status, 403);
+    assert.equal(deniedMemory.reason, "email_does_not_match_booking");
+    assert.equal(deniedMemory.previous_session, undefined);
+
+    const memoryResponse = await fetch(`${baseUrl}/career-session/memory`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        booking_request_id: booked.request_id,
+        guest_email: "casey@example.com",
+        email_confirmed: true
+      })
+    });
+    const memory = await memoryResponse.json();
+    assert.equal(memoryResponse.status, 200);
+    assert.equal(memory.returning_guest, true);
+    assert.equal(
+      memory.previous_session.next_step.action,
+      "Connect with one customer success manager"
+    );
+    assert.match(memory.previous_session.follow_up_question, /Did you get to do that/);
+
     const careerResponse = await fetch(`${baseUrl}/career-session/complete`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -403,6 +442,8 @@ test("bucket storage persists booking and career session records", async () => {
         career_direction: "customer success",
         strengths_experience: "service, follow-through, and communication",
         primary_challenge: "narrowing the search",
+        previous_session_reflection:
+          "I connected with a customer success manager and learned that onboarding experience matters.",
         recommended_event: {
           name: "local customer success networking event",
           format: "in person",
@@ -437,6 +478,7 @@ test("bucket storage persists booking and career session records", async () => {
     assert.equal(sessionRows[1].booking_request_id, booked.request_id);
     assert.equal(sessionRows[1].next_step.target_date, "2026-09-10");
     assert.equal(sessionRows[1].email_subject, "Customer Success Career - Second Session");
+    assert.match(sessionRows[1].previous_session_reflection, /onboarding experience/);
   } finally {
     app.kill("SIGTERM");
     await close(storage);
