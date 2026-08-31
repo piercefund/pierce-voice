@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHmac } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -99,6 +99,26 @@ test("signed incoming call reuses Pierce tools and ignores duplicate delivery", 
   const upstreamPort = await listen(upstream);
   const appPort = await availablePort();
   const workDir = await mkdtemp(join(tmpdir(), "pierce-phone-test-"));
+  await writeFile(
+    join(workDir, "booking-requests.jsonl"),
+    `${JSON.stringify({
+      request_id: "REQ-PHONE-CHECKIN",
+      created_at: "2026-09-01T19:00:00.000Z",
+      queue_type: "booking_request",
+      status: "calendar_invite_sent",
+      confirmation: "PV-TEST",
+      guest: {
+        name: "Kurling Robinson",
+        email: "kurling@fokcus.com",
+        topic: "Career session"
+      },
+      date: "2026-09-01",
+      time: "14:00",
+      end_time: "14:15",
+      timezone: "America/Los_Angeles",
+      recording_consent: true
+    })}\n`
+  );
   const app = spawn(process.execPath, [join(projectDir, "server.mjs")], {
     cwd: projectDir,
     env: {
@@ -181,6 +201,8 @@ test("signed incoming call reuses Pierce tools and ignores duplicate delivery", 
       "Booking tools were not loaded"
     );
     assert.ok(bookingUpdate.session.tools.some((tool) => tool.name === "prepare_booking_request"));
+    assert.equal(bookingUpdate.session.audio.input.noise_reduction.type, "near_field");
+    assert.equal(bookingUpdate.session.audio.input.turn_detection.interrupt_response, false);
 
     socket.send(
       JSON.stringify({
@@ -204,6 +226,113 @@ test("signed incoming call reuses Pierce tools and ignores duplicate delivery", 
     assert.equal(result.ok, true);
     assert.equal(result.guest_email, "kurling@fokcus.com");
     assert.match(result.message, /character by character/i);
+
+    socket.send(
+      JSON.stringify({
+        type: "response.function_call_arguments.done",
+        response_id: "response-check-in-select",
+        call_id: "function-check-in-select",
+        name: "select_pierce_journey",
+        arguments: JSON.stringify({ journey: "check_in" })
+      })
+    );
+    const checkInUpdate = await waitFor(
+      () =>
+        socketEvents.find(
+          (event) =>
+            event.type === "session.update" &&
+            event.session.tools.some((tool) => tool.name === "find_guest_session")
+        ),
+      "Check-in tools were not loaded"
+    );
+    assert.match(checkInUpdate.session.instructions, /check-in and career conversation may be recorded/);
+    assert.doesNotMatch(checkInUpdate.session.instructions, /this brief check-in may be recorded/i);
+    assert.equal(checkInUpdate.session.audio.input.noise_reduction.type, "near_field");
+    assert.equal(checkInUpdate.session.audio.input.turn_detection.eagerness, "medium");
+
+    socket.send(
+      JSON.stringify({
+        type: "response.function_call_arguments.done",
+        response_id: "response-check-in",
+        call_id: "function-check-in",
+        name: "prepare_check_in_request",
+        arguments: JSON.stringify({
+          guest_name: "Kurling Robinson",
+          recording_consent: true,
+          date: "2026-09-01",
+          session_time: "2:00 PM",
+          topic: "Career session",
+          booking_request_id: "REQ-PHONE-CHECKIN"
+        })
+      })
+    );
+    const careerHandoffUpdate = await waitFor(
+      () =>
+        socketEvents.find(
+          (event) =>
+            event.type === "session.update" &&
+            event.session.instructions.includes("The caller just checked in")
+        ),
+      "Career handoff instructions were not loaded"
+    );
+    assert.match(careerHandoffUpdate.session.instructions, /Do not ask for consent again/);
+    assert.doesNotMatch(careerHandoffUpdate.session.instructions, /second, separate consent/i);
+    assert.ok(
+      careerHandoffUpdate.session.tools.some((tool) => tool.name === "complete_career_session")
+    );
+    assert.ok(
+      !careerHandoffUpdate.session.tools.some((tool) => tool.name === "find_career_session")
+    );
+    assert.equal(careerHandoffUpdate.session.audio.input.noise_reduction.type, "near_field");
+
+    socket.send(
+      JSON.stringify({
+        type: "response.function_call_arguments.done",
+        response_id: "response-complete-career",
+        call_id: "function-complete-career",
+        name: "complete_career_session",
+        arguments: JSON.stringify({
+          booking_request_id: "REQ-PHONE-CHECKIN",
+          guest_city: "Los Angeles",
+          useful_outcome: "choose a realistic next job target",
+          career_direction: "operations leadership",
+          strengths_experience: "organizing people and improving service quality",
+          primary_challenge: "turning broad experience into a focused search",
+          recommended_event: {
+            name: "local professional networking event",
+            format: "in person",
+            reason: "it gives practice explaining the career direction out loud"
+          },
+          resource_key: "career_one_stop",
+          next_step: "write a one-page target role list",
+          next_step_target_date: "September 10, 2026",
+          next_step_confirmed: true,
+          recording_consent: true,
+          email_consent: false
+        })
+      })
+    );
+    const careerOutput = await waitFor(
+      () =>
+        socketEvents.find(
+          (event) =>
+            event.type === "conversation.item.create" &&
+            event.item.call_id === "function-complete-career"
+        ),
+      "Career session did not return a tool result"
+    );
+    const careerResult = JSON.parse(careerOutput.item.output);
+    assert.equal(careerResult.ok, true);
+    assert.equal(careerResult.recommended_event.format, "in_person");
+    assert.equal(careerResult.next_step_target_date, "2026-09-10");
+
+    const savedSessions = (await readFile(join(workDir, "career-session-summaries.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    assert.equal(savedSessions.length, 1);
+    assert.equal(savedSessions[0].booking_request_id, "REQ-PHONE-CHECKIN");
+    assert.equal(savedSessions[0].next_step.target_date, "2026-09-10");
   } finally {
     socket?.close();
     sockets.close();
