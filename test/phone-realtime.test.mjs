@@ -319,6 +319,12 @@ test("signed incoming call reuses Pierce tools and ignores duplicate delivery", 
       careerHandoffUpdate.session.instructions,
       /What would make this session useful today/
     );
+    assert.match(careerHandoffUpdate.session.instructions, /SCORE mentor connection/);
+    assert.match(careerHandoffUpdate.session.instructions, /online, local in-person, or either/);
+    assert.match(
+      careerHandoffUpdate.session.instructions,
+      /SCORE can be a good way to request a mentor/
+    );
     assert.match(careerHandoffUpdate.session.instructions, /For example, San Diego, California/);
     assert.ok(
       careerHandoffUpdate.session.tools.some((tool) => tool.name === "complete_career_session")
@@ -385,6 +391,7 @@ test("signed incoming call reuses Pierce tools and ignores duplicate delivery", 
             format: "in person",
             reason: "it gives practice explaining the career direction out loud"
           },
+          mentor_connection_preference: "either",
           resource_key: "career_one_stop",
           next_step: "write a one-page target role list",
           next_step_target_date: "September 10, 2026",
@@ -406,6 +413,8 @@ test("signed incoming call reuses Pierce tools and ignores duplicate delivery", 
     const careerResult = JSON.parse(careerOutput.item.output);
     assert.equal(careerResult.ok, true);
     assert.equal(careerResult.recommended_event.format, "in_person");
+    assert.equal(careerResult.mentor_connection.name, "SCORE Find a Mentor");
+    assert.equal(careerResult.mentor_connection.preference, "either");
     assert.equal(careerResult.next_step_target_date, "2026-09-10");
 
     const savedSessions = (await readFile(join(workDir, "career-session-summaries.jsonl"), "utf8"))
@@ -415,6 +424,7 @@ test("signed incoming call reuses Pierce tools and ignores duplicate delivery", 
     assert.equal(savedSessions.length, 2);
     assert.equal(savedSessions[1].booking_request_id, "REQ-PHONE-CHECKIN");
     assert.equal(savedSessions[1].next_step.target_date, "2026-09-10");
+    assert.equal(savedSessions[1].mentor_connection.preference, "either");
     assert.match(savedSessions[1].previous_session_reflection, /retired broker/);
   } finally {
     socket?.close();

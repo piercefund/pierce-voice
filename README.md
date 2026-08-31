@@ -97,6 +97,8 @@ When `PIERCE_STORAGE_BUCKET` is set, Pierce stores booking, check-in, career sum
 
 Career follow-up emails use saved session history to name each message by occurrence, such as `Financial Trading Career - Initial Session` and `Financial Trading Career - Second Session`. When `PIERCE_RESEARCH_ENABLED=true`, Pierce also uses an extra OpenAI research pass to add one targeted local resource, one targeted local event or trusted event page, and brief context for the guest's next step. If the research pass is unavailable, the session still saves and the regular follow-up email is sent.
 
+Career sessions also include a SCORE mentor connection. Pierce frames SCORE as a free one-on-one mentoring path with experienced business mentors, including retired executives or managers when available. Guests can choose online, local in-person, or either as their mentoring preference; local availability depends on SCORE chapters, while online mentoring remains the default national path.
+
 For returning guests, Pierce can use the previous career-session summary to ask one follow-up question about the last confirmed next step before starting the new discovery questions. To protect privacy, Pierce unlocks that memory only after the guest confirms the exact email used for the current booking. The follow-up answer is saved as part of the new career-session summary.
 
 ## City Highlights Pilot
@@ -165,12 +167,13 @@ On an incoming call, the signed webhook accepts the supplied `call_id`, opens th
 - The server forwards that SDP to `https://api.openai.com/v1/realtime/calls` using multipart `FormData` fields named `sdp` and `session`.
 - In booking mode, the browser registers email verification, existing-booking lookup, cancellation, and booking-request tools with `session.update`.
 - In check-in mode, the browser registers `find_guest_session(guest_name, date)` and `prepare_check_in_request(guest_name, recording_consent, date, session_time, topic, booking_request_id)` with `session.update`.
-- In career mode, Pierce finds the guest's booking, asks for their city and exactly four discovery questions, recommends exactly one locally relevant event and one approved resource, and confirms one next step and date.
+- In career mode, Pierce finds the guest's booking, asks for their city and exactly four discovery questions, recommends one SCORE mentor connection, exactly one locally relevant event, and one approved resource, then confirms one next step and date.
 - Career session summaries are saved to `work/career-session-summaries.jsonl` locally, or to the configured Cloud Storage bucket in Cloud Run.
 - Returning career sessions can include one follow-up question about the prior confirmed next step after the guest confirms the exact booking email. Pierce saves the answer with the new session.
 - With consent, Pierce sends the career summary from `voice@pierce.fund` and records the delivery in `work/follow-up-emails.jsonl`. The subject reflects the career focus and session occurrence. If Gmail delivery is unavailable, the record is kept with status `pending_delivery` instead of being lost.
 - Career summaries stay out of the calendar invitation; the invitation remains focused on the appointment and check-in link.
 - Pierce selects exactly one resource from My Next Move, CareerOneStop, and O*NET OnLine.
+- Pierce uses SCORE as the default retired-expert mentor pathway and stores the guest's preference for online, local in-person, or either.
 - When a live event listing is not verified, Pierce recommends an event type and does not invent an organizer, date, location, or link.
 - Pierce collects email in parts, reads every character and punctuation mark back, and replaces the earlier value completely whenever the guest corrects it.
 - After the exact email is confirmed, Pierce checks for active bookings. A guest can keep, cancel, or replace an existing session, and the server prevents a second active booking from being saved.
@@ -223,4 +226,4 @@ Career follow-up email uses the same Google OAuth connection as Calendar and req
 
 When `HUBSPOT_SERVICE_KEY` is configured, every accepted booking automatically creates or updates the contact by confirmed email, adds an idempotent booking note with the Tourist journey stage, and records the HubSpot IDs in `work/hubspot-syncs.jsonl`. HubSpot errors never undo the booking or calendar invitation. `POST /hubspot/sync/latest-booking` remains available as a safe manual retry.
 
-After Pierce completes a career session, the calendar invitation stays unchanged. The guest receives the concise goal, event, resource, and confirmed next step by email when they approve it.
+After Pierce completes a career session, the calendar invitation stays unchanged. The guest receives the concise goal, SCORE mentor connection, event, resource, and confirmed next step by email when they approve it.

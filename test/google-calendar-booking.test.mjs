@@ -211,6 +211,7 @@ test("connected Calendar checks availability and sends one idempotent invitation
           format: "in_person",
           reason: "Compare nearby training options and admission requirements"
         },
+        mentor_connection_preference: "in_person",
         resource_key: "my_next_move",
         next_step: "Compare two LVN programs",
         next_step_target_date: date,
@@ -227,6 +228,8 @@ test("connected Calendar checks availability and sends one idempotent invitation
     assert.equal(career.email_subject, "Licensed Vocational Nursing Career - Initial Session");
     assert.equal(career.session_occurrence_label, "Initial Session");
     assert.equal(career.research_enhanced, true);
+    assert.equal(career.mentor_connection.name, "SCORE Find a Mentor");
+    assert.equal(career.mentor_connection.preference, "in_person");
 
     const gmailSend = requests.find(
       (request) => request.method === "POST" && request.url === "/gmail/v1/users/me/messages/send"
@@ -238,6 +241,10 @@ test("connected Calendar checks availability and sends one idempotent invitation
     assert.match(emailText, /Research-backed summary/);
     assert.match(emailText, /San Diego Workforce Partnership/);
     assert.match(emailText, /San Diego healthcare career events page/);
+    assert.match(emailText, /Mentor connection/);
+    assert.match(emailText, /SCORE Find a Mentor/);
+    assert.match(emailText, /https:\/\/www\.score\.org\/find-mentor/);
+    assert.match(emailText, /career development and leadership guidance/);
     assert.match(emailText, /Compare two LVN programs/);
     assert.match(emailText, /Why this next step matters/);
 
@@ -449,6 +456,7 @@ test("bucket storage persists booking and career session records", async () => {
           format: "in person",
           reason: "practice explaining the career direction"
         },
+        mentor_connection_preference: "online",
         resource_key: "career_one_stop",
         next_step: "write a target role list",
         next_step_target_date: "September 10, 2026",
@@ -464,6 +472,7 @@ test("bucket storage persists booking and career session records", async () => {
     assert.equal(career.email_subject, "Customer Success Career - Second Session");
     assert.equal(career.session_occurrence, 2);
     assert.equal(career.session_occurrence_label, "Second Session");
+    assert.equal(career.mentor_connection.preference, "online");
 
     const bookingObject = objects.get("pierce-data/booking-requests.jsonl");
     assert.ok(bookingObject);
@@ -478,6 +487,9 @@ test("bucket storage persists booking and career session records", async () => {
     assert.equal(sessionRows[1].booking_request_id, booked.request_id);
     assert.equal(sessionRows[1].next_step.target_date, "2026-09-10");
     assert.equal(sessionRows[1].email_subject, "Customer Success Career - Second Session");
+    assert.equal(sessionRows[1].mentor_connection.name, "SCORE Find a Mentor");
+    assert.equal(sessionRows[1].mentor_connection.preference, "online");
+    assert.match(sessionRows[1].mentor_connection.suggested_request, /career development/);
     assert.match(sessionRows[1].previous_session_reflection, /onboarding experience/);
   } finally {
     app.kill("SIGTERM");
