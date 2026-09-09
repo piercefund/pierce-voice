@@ -321,6 +321,14 @@ test("signed incoming call reuses Pierce tools and ignores duplicate delivery", 
     );
     assert.match(careerHandoffUpdate.session.instructions, /SCORE mentor connection/);
     assert.match(careerHandoffUpdate.session.instructions, /online, local in-person, or either/);
+    assert.match(careerHandoffUpdate.session.instructions, /Are you between 14 and 24/);
+    assert.match(careerHandoffUpdate.session.instructions, /SBCS/);
+    assert.match(careerHandoffUpdate.session.instructions, /Climb Hire San Diego/);
+    assert.match(careerHandoffUpdate.session.instructions, /eligibility varies by program/);
+    assert.match(
+      careerHandoffUpdate.session.instructions,
+      /career exploration, training, finding an internship or job, or connecting with a mentor/
+    );
     assert.match(
       careerHandoffUpdate.session.instructions,
       /SCORE can be a good way to request a mentor/
@@ -328,6 +336,14 @@ test("signed incoming call reuses Pierce tools and ignores duplicate delivery", 
     assert.match(careerHandoffUpdate.session.instructions, /For example, San Diego, California/);
     assert.ok(
       careerHandoffUpdate.session.tools.some((tool) => tool.name === "complete_career_session")
+    );
+    const completeCareerTool = careerHandoffUpdate.session.tools.find(
+      (tool) => tool.name === "complete_career_session"
+    );
+    assert.ok(
+      completeCareerTool.parameters.properties.resource_key.enum.includes(
+        "climb_hire_san_diego"
+      )
     );
     assert.ok(
       careerHandoffUpdate.session.tools.some((tool) => tool.name === "get_career_session_memory")

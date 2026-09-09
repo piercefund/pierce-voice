@@ -99,6 +99,8 @@ Career follow-up emails use saved session history to name each message by occurr
 
 Career sessions also include a SCORE mentor connection. Pierce frames SCORE as a free one-on-one mentoring path with experienced business mentors, including retired executives or managers when available. Guests can choose online, local in-person, or either as their mentoring preference; local availability depends on SCORE chapters, while online mentoring remains the default national path.
 
+For guests ages 14 to 24, Pierce asks a youth-program check before the four discovery questions. If the guest is in that age range, Pierce explains that special San Diego career programs may be available, asks whether they want help with career exploration, training, an internship or job, or a mentor, and prioritizes SBCS, SDSU Careers, International Rescue Committee San Diego, or Climb Hire San Diego when one fits. Pierce must preserve eligibility caveats and must not imply every 14 to 24 year old qualifies for every program; Climb Hire eligibility should be checked before assuming it applies.
+
 For returning guests, Pierce can use the previous career-session summary to ask one follow-up question about the last confirmed next step before starting the new discovery questions. To protect privacy, Pierce unlocks that memory only after the guest confirms the exact email used for the current booking. The follow-up answer is saved as part of the new career-session summary.
 
 ## City Highlights Pilot
@@ -167,12 +169,12 @@ On an incoming call, the signed webhook accepts the supplied `call_id`, opens th
 - The server forwards that SDP to `https://api.openai.com/v1/realtime/calls` using multipart `FormData` fields named `sdp` and `session`.
 - In booking mode, the browser registers email verification, existing-booking lookup, cancellation, and booking-request tools with `session.update`.
 - In check-in mode, the browser registers `find_guest_session(guest_name, date)` and `prepare_check_in_request(guest_name, recording_consent, date, session_time, topic, booking_request_id)` with `session.update`.
-- In career mode, Pierce finds the guest's booking, asks for their city and exactly four discovery questions, recommends one SCORE mentor connection, exactly one locally relevant event, and one approved resource, then confirms one next step and date.
+- In career mode, Pierce finds the guest's booking, asks for their city, checks whether they are ages 14 to 24 for San Diego youth-program guidance, asks exactly four discovery questions, recommends one SCORE mentor connection, exactly one locally relevant event, and one approved resource, then confirms one next step and date.
 - Career session summaries are saved to `work/career-session-summaries.jsonl` locally, or to the configured Cloud Storage bucket in Cloud Run.
 - Returning career sessions can include one follow-up question about the prior confirmed next step after the guest confirms the exact booking email. Pierce saves the answer with the new session.
 - With consent, Pierce sends the career summary from `voice@pierce.fund` and records the delivery in `work/follow-up-emails.jsonl`. The subject reflects the career focus and session occurrence. If Gmail delivery is unavailable, the record is kept with status `pending_delivery` instead of being lost.
 - Career summaries stay out of the calendar invitation; the invitation remains focused on the appointment and check-in link.
-- Pierce selects exactly one resource from My Next Move, CareerOneStop, and O*NET OnLine.
+- Pierce selects exactly one resource from My Next Move, CareerOneStop, O*NET OnLine, SBCS, SDSU Careers, International Rescue Committee San Diego, and Climb Hire San Diego. Youth-program recommendations must preserve eligibility caveats.
 - Pierce uses SCORE as the default retired-expert mentor pathway and stores the guest's preference for online, local in-person, or either.
 - When a live event listing is not verified, Pierce recommends an event type and does not invent an organizer, date, location, or link.
 - Pierce collects email in parts, reads every character and punctuation mark back, and replaces the earlier value completely whenever the guest corrects it.
