@@ -72,6 +72,19 @@ h1 {
   line-height: 1.45;
 }
 
+.phone-option {
+  margin: 10px 0 0;
+  color: #57606a;
+  font-size: 0.98rem;
+  line-height: 1.45;
+}
+
+.phone-option a {
+  color: #145a32;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
 .event-eyebrow {
   margin: 24px 0 4px;
   color: #176b3a;
