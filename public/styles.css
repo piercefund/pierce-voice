@@ -53,16 +53,15 @@ h1 {
 }
 
 .brand-title {
-  display: flex;
-  align-items: center;
-  gap: clamp(16px, 3vw, 28px);
+  display: block;
 }
 
 .brand-logo {
-  width: clamp(52px, 11vw, 96px);
-  height: clamp(52px, 11vw, 96px);
+  display: block;
+  width: clamp(160px, 42vw, 260px);
+  height: auto;
+  max-height: 80px;
   object-fit: contain;
-  flex: 0 0 auto;
 }
 
 .lede {
@@ -296,14 +295,13 @@ h1 {
 }
 
 .organizer-brand {
-  gap: 10px;
-  font-size: 1.15rem;
-  font-weight: 800;
+  flex: 0 1 220px;
 }
 
 .organizer-logo {
-  width: 34px;
-  height: 34px;
+  display: block;
+  width: min(180px, 100%);
+  height: auto;
 }
 
 .secondary-button,
