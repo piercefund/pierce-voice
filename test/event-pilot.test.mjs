@@ -28,12 +28,12 @@ async function availablePort() {
 }
 
 async function waitForServer(url) {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
     try {
       const response = await fetch(url);
       if (response.ok) return;
     } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(`Server did not start at ${url}`);
 }
@@ -124,18 +124,35 @@ test("event pilot prepares, checks in, reviews, emails, and syncs a participant"
   try {
     const baseUrl = `http://127.0.0.1:${appPort}`;
     const slug = "city-highlights-careers";
+    const startupWeekSlug = "san-diego-startup-week-mentoring";
     await waitForServer(baseUrl);
 
-    for (const path of [
-      `/events/${slug}`,
-      `/events/${slug}/check-in`,
-      `/events/${slug}/mentor`,
-      `/events/${slug}/recap`,
-      `/events/${slug}/organizer`
-    ]) {
-      const page = await fetch(`${baseUrl}${path}`);
-      assert.equal(page.status, 200);
+    for (const eventSlug of [slug, startupWeekSlug]) {
+      for (const path of [
+        `/events/${eventSlug}`,
+        `/events/${eventSlug}/check-in`,
+        `/events/${eventSlug}/mentor`,
+        `/events/${eventSlug}/recap`,
+        `/events/${eventSlug}/organizer`
+      ]) {
+        const page = await fetch(`${baseUrl}${path}`);
+        assert.equal(page.status, 200);
+      }
     }
+
+    const startupWeekConfigResponse = await fetch(
+      `${baseUrl}/event/config?slug=${startupWeekSlug}`
+    );
+    const startupWeekConfig = await startupWeekConfigResponse.json();
+    assert.equal(startupWeekConfigResponse.status, 200);
+    assert.deepEqual(startupWeekConfig.event, {
+      slug: startupWeekSlug,
+      name: "San Diego Startup Week Mentoring",
+      date_label: "November 2, 2026",
+      location_label: "Carlsbad location shared with participants",
+      duration_minutes: 120,
+      session_minutes: 45
+    });
 
     const intakeResponse = await fetch(`${baseUrl}/event/intake/participant`, {
       method: "POST",

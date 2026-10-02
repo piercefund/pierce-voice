@@ -86,6 +86,17 @@ const pilotEvent = Object.freeze({
   duration_minutes: Number(process.env.PIERCE_EVENT_DURATION_MINUTES || 120),
   session_minutes: Number(process.env.PIERCE_EVENT_SESSION_MINUTES || 45)
 });
+const startupWeekEvent = Object.freeze({
+  slug: "san-diego-startup-week-mentoring",
+  name: "San Diego Startup Week Mentoring",
+  date_label: "November 2, 2026",
+  location_label: "Carlsbad location shared with participants",
+  duration_minutes: 120,
+  session_minutes: 45
+});
+const configuredEvents = new Map(
+  [pilotEvent, startupWeekEvent].map((event) => [event.slug, event])
+);
 let bookingMutation = Promise.resolve();
 let careerMutation = Promise.resolve();
 let hubspotMutation = Promise.resolve();
@@ -1389,7 +1400,7 @@ async function syncCareerSessionToHubspot(session, booking) {
 }
 
 function configuredEvent(slug) {
-  return String(slug || "").trim() === pilotEvent.slug ? pilotEvent : null;
+  return configuredEvents.get(String(slug || "").trim()) || null;
 }
 
 function eventGuest(record) {
@@ -3968,12 +3979,15 @@ async function handleRealtimeSession(req, res) {
 
 async function serveStatic(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  const eventBase = `/events/${pilotEvent.slug}`;
+  const eventPath = url.pathname.match(
+    /^\/events\/([^/]+)(?:\/(check-in|mentor|recap|organizer))?\/?$/
+  );
+  const event = eventPath ? configuredEvent(decodeURIComponent(eventPath[1])) : null;
   let requestedPath = url.pathname;
-  if (["/", "/check-in", eventBase, `${eventBase}/check-in`, `${eventBase}/mentor`, `${eventBase}/recap`].includes(url.pathname)) {
+  if (["/", "/check-in"].includes(url.pathname) || (event && eventPath[2] !== "organizer")) {
     requestedPath = "/index.html";
   }
-  if (url.pathname === `${eventBase}/organizer`) {
+  if (event && eventPath[2] === "organizer") {
     requestedPath = "/organizer.html";
   }
   const safePath = normalize(decodeURIComponent(requestedPath)).replace(/^(\.\.[/\\])+/, "");
