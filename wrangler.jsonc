@@ -79,6 +79,8 @@
     "PIERCE_PHONE_VOICE": "marin",
     "PIERCE_PHONE_HANGUP_GRACE_MS": "10000",
     "TWILIO_FROM_NUMBER": "+18669672844",
+    "CF_ACCESS_TEAM_DOMAIN": "https://piercefund.cloudflareaccess.com",
+    "CF_ACCESS_AUD": "f6ccb6ea0fe61ef7bc6dd330dcb632ffb5d324c2a546c5a361359f58c17b4682",
     "GOOGLE_CLIENT_ID": "112314776424-bgetroctfblv8m823o53a827hikf9oqk.apps.googleusercontent.com",
     "GOOGLE_OAUTH_REDIRECT_URI": "https://voice.pierce.fund/calendar/oauth/callback",
     "GOOGLE_CALENDAR_ACCOUNT_EMAIL": "voice@pierce.fund",
