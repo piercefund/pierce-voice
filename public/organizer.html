@@ -21,6 +21,66 @@
         <p id="organizerDetails" class="lede">Review each recap before it is emailed and added to HubSpot.</p>
       </section>
 
+      <section class="organizer-bookings-section" aria-labelledby="mentorBookingsTitle">
+        <div class="organizer-section-heading">
+          <h2 id="mentorBookingsTitle">Mentor appointments</h2>
+          <p id="mentorBookingSummary">Loading appointments...</p>
+        </div>
+        <div id="mentorBookingList" class="mentor-booking-list"></div>
+      </section>
+
+      <section id="mentorRosterSection" class="mentor-roster-section" aria-labelledby="mentorRosterTitle">
+        <div class="organizer-section-heading">
+          <div>
+            <h2 id="mentorRosterTitle">Mentor table assignments</h2>
+            <p>Assign 1–4 mentors to each table. Reuse a table number to create a mentor team.</p>
+          </div>
+          <button id="addMentorButton" class="secondary-button" type="button">Add mentor</button>
+        </div>
+        <form id="mentorRosterForm">
+          <div id="mentorRosterList" class="mentor-roster-list"></div>
+          <div class="mentor-roster-actions">
+            <button id="saveMentorRosterButton" type="submit">Save assignments</button>
+            <p id="mentorRosterStatus" class="organizer-status" aria-live="polite"></p>
+          </div>
+        </form>
+      </section>
+
+      <section class="data-management" aria-labelledby="dataManagementTitle">
+        <div class="organizer-section-heading">
+          <div>
+            <h2 id="dataManagementTitle">Data management</h2>
+            <p id="dataInventory">Loading stored event data...</p>
+          </div>
+          <a id="exportDataButton" class="secondary-button" href="#" download>Download event data</a>
+        </div>
+        <form id="deleteParticipantForm" class="delete-participant-form">
+          <label for="deleteParticipantEmail">Delete one participant’s Pierce records</label>
+          <div class="delete-participant-controls">
+            <input id="deleteParticipantEmail" name="participant_email" type="email"
+              autocomplete="off" placeholder="participant@example.com" required />
+            <button id="deleteParticipantButton" class="danger-button" type="submit">Delete data</button>
+          </div>
+          <p>Enter the exact participant email. This permanently removes matching records for this event and cannot be undone.</p>
+        </form>
+        <p id="dataManagementStatus" class="organizer-status" aria-live="polite"></p>
+        <section class="hubspot-preview" aria-labelledby="hubspotPreviewTitle">
+          <div class="organizer-section-heading">
+            <div>
+              <h3 id="hubspotPreviewTitle">HubSpot historical backfill preview</h3>
+              <p>Review what would be added or updated. Generating this report does not send data to HubSpot.</p>
+            </div>
+            <button id="hubspotPreviewButton" class="secondary-button" type="button">Generate preview</button>
+          </div>
+          <p id="hubspotPreviewSummary" class="organizer-status" aria-live="polite"></p>
+          <div id="hubspotPreviewList" class="hubspot-preview-list"></div>
+          <div id="hubspotBackfillActions" class="hubspot-backfill-actions" hidden>
+            <button id="hubspotBackfillButton" type="button">Backfill selected contacts</button>
+            <p id="hubspotBackfillStatus" class="organizer-status" aria-live="polite"></p>
+          </div>
+        </section>
+      </section>
+
       <p id="organizerStatus" class="organizer-status" aria-live="polite">Loading summaries...</p>
       <section id="summaryList" class="summary-list" aria-label="Participant summaries"></section>
     </main>

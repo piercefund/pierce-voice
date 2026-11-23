@@ -36,6 +36,7 @@ const hubspotSyncsPath = dataPath("hubspot-syncs.jsonl");
 const eventIntakesPath = dataPath("event-intakes.jsonl");
 const eventCheckInsPath = dataPath("event-check-ins.jsonl");
 const eventSummariesPath = dataPath("event-session-summaries.jsonl");
+const jobFairQuickStartsPath = dataPath("job-fair-quick-starts.jsonl");
 const hubspotServiceKey = process.env.HUBSPOT_SERVICE_KEY || "";
 const hubspotApiBase = process.env.HUBSPOT_API_BASE || "https://api.hubapi.com";
 const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
@@ -94,8 +95,17 @@ const startupWeekEvent = Object.freeze({
   duration_minutes: 120,
   session_minutes: 45
 });
+const loganHeightsJobFair = Object.freeze({
+  slug: "logan-heights-job-fair",
+  name: "Logan Heights Job Fair",
+  date_label: "October 28, 2026",
+  location_label: "Logan Heights, San Diego",
+  duration_minutes: 5,
+  session_minutes: 5,
+  experience: "job_fair_quick_start"
+});
 const configuredEvents = new Map(
-  [pilotEvent, startupWeekEvent].map((event) => [event.slug, event])
+  [pilotEvent, startupWeekEvent, loganHeightsJobFair].map((event) => [event.slug, event])
 );
 let bookingMutation = Promise.resolve();
 let careerMutation = Promise.resolve();
@@ -2039,6 +2049,138 @@ function buildEventFollowUpEmail(summary) {
   ].join("\n");
 }
 
+const jobFairResourceKeys = new Set([
+  "career_one_stop",
+  "my_next_move",
+  "onet_online",
+  "sbcs",
+  "climb_hire_san_diego",
+  "sdsu_careers",
+  "irc_san_diego"
+]);
+
+function buildJobFairQuickStartEmail(record) {
+  return [
+    `Hi ${firstName(record.participant.name)},`,
+    "",
+    `Here is your quick start from ${record.event.name}.`,
+    "",
+    "Career interest",
+    record.job_interest,
+    "",
+    "Strength or experience",
+    record.strength_or_experience,
+    "",
+    "A useful question for employers",
+    record.employer_question,
+    "",
+    "Resource",
+    `${record.resource.name}: ${record.resource.url}`,
+    "",
+    "More San Diego career resources",
+    "Climb Hire San Diego: https://climbhire.co/job-training-programs-san-diego/",
+    "SBCS: https://sbcssandiego.org/",
+    "SDSU Careers: https://careers.sdsu.edu/",
+    "International Rescue Committee San Diego: https://www.rescue.org/united-states/san-diego-ca",
+    "Logan Heights CDC: https://www.loganheightscdc.org/",
+    "San Diego Workforce Partnership: https://workforce.org/",
+    "UC San Diego Extended Studies & Google Career Certificates: https://www.workforce.org/about-google-meta/",
+    "Program eligibility and availability vary. Review each program's requirements before applying.",
+    "",
+    "Your next step",
+    `${record.next_step.action} by ${record.next_step.target_date}.`,
+    "",
+    "You have a clear question and a practical next step. Keep going.",
+    "",
+    "Pierce"
+  ].join("\n");
+}
+
+async function handleJobFairQuickStart(req, res) {
+  const body = await readJson(req);
+  const event = configuredEvent(body.event_slug);
+  const emailConsent = body.email_consent === true;
+  const participant = {
+    name: normalizeGuestName(body.guest_name),
+    email: emailConsent ? normalizeSpokenEmail(body.guest_email) : ""
+  };
+  const resourceKey = String(body.resource_key || "").trim();
+  const targetDate = String(body.next_step_target_date || "").trim();
+
+  if (
+    event?.experience !== "job_fair_quick_start" ||
+    !participant.name ||
+    body.recording_consent !== true ||
+    body.participant_approved !== true ||
+    typeof body.email_consent !== "boolean" ||
+    (emailConsent && (!isEmail(participant.email) || body.email_confirmed !== true)) ||
+    !String(body.job_interest || "").trim() ||
+    !String(body.strength_or_experience || "").trim() ||
+    !String(body.immediate_challenge || "").trim() ||
+    !String(body.employer_question || "").trim() ||
+    !jobFairResourceKeys.has(resourceKey) ||
+    !String(body.next_step || "").trim() ||
+    !isIsoDate(targetDate)
+  ) {
+    sendJson(req, res, 400, { ok: false, reason: "incomplete_job_fair_quick_start" });
+    return;
+  }
+
+  const resource = careerResources[resourceKey];
+  const record = {
+    quick_start_id: `JFQ-${Date.now().toString(36).toUpperCase()}`,
+    created_at: new Date().toISOString(),
+    queue_type: "job_fair_quick_start",
+    status: "complete",
+    event: { ...event },
+    participant,
+    job_interest: String(body.job_interest).trim(),
+    strength_or_experience: String(body.strength_or_experience).trim(),
+    immediate_challenge: String(body.immediate_challenge).trim(),
+    employer_question: String(body.employer_question).trim(),
+    resource: { key: resourceKey, name: resource.name, url: resource.url },
+    next_step: { action: String(body.next_step).trim(), target_date: targetDate },
+    recording_consent: true,
+    participant_approved: true,
+    email_consent: emailConsent,
+    email_confirmed: emailConsent
+  };
+
+  let emailStatus = "not_requested";
+  if (emailConsent) {
+    try {
+      await sendGoogleFollowUpEmail({
+        to: participant.email,
+        subject: `Your ${event.name} quick start`,
+        body: buildJobFairQuickStartEmail(record)
+      });
+      emailStatus = "sent";
+    } catch (error) {
+      emailStatus = "queued";
+      await appendJsonLine(followUpEmailsPath, {
+        email_id: `EML-${Date.now().toString(36).toUpperCase()}`,
+        created_at: new Date().toISOString(),
+        status: "pending",
+        to: participant.email,
+        subject: `Your ${event.name} quick start`,
+        body: buildJobFairQuickStartEmail(record),
+        reason: error.reason || "email_delivery_failed"
+      });
+    }
+  }
+  record.email_status = emailStatus;
+  await appendJsonLine(jobFairQuickStartsPath, record);
+
+  sendJson(req, res, 200, {
+    ok: true,
+    quick_start_id: record.quick_start_id,
+    participant_name: participant.name,
+    resource: record.resource,
+    next_step: record.next_step,
+    email_status: emailStatus
+  });
+}
+
 async function handleEventConfig(req, res, url) {
   const event = configuredEvent(url.searchParams.get("slug"));
   if (!event) {
@@ -2587,6 +2729,7 @@ async function handleBookingCancellation(req, res) {
 
 async function handleBookingRequest(req, res) {
   const body = await readJson(req);
+  const quietMode = body.interaction_mode === "quiet";
   const normalizedEmail = normalizeSpokenEmail(body.guest_email);
   const normalizedName = normalizeGuestName(body.guest_name);
   const guest = {
@@ -2604,7 +2747,7 @@ async function handleBookingRequest(req, res) {
     !guest.topic ||
     !date ||
     !time ||
-    body.recording_consent !== true
+    (!quietMode && body.recording_consent !== true)
   ) {
     sendJson(req, res, 400, { ok: false, reason: "missing_required_fields" });
     return;
@@ -2661,7 +2804,8 @@ async function handleBookingRequest(req, res) {
     end_time: end.time,
     duration_minutes: sessionMinutes,
     timezone: ownerTimezone,
-    recording_consent: true,
+    interaction_mode: quietMode ? "quiet" : "voice",
+    recording_consent: quietMode ? false : true,
     email_confirmed: true,
     replaces_booking_request_id: String(body.replaces_booking_request_id || "").trim()
   };
@@ -2755,13 +2899,14 @@ async function handleBookingRequest(req, res) {
 
 async function handleCheckInRequest(req, res) {
   const body = await readJson(req);
+  const quietMode = body.interaction_mode === "quiet";
   const normalizedName = normalizeGuestName(body.guest_name);
   const date = String(body.date || todayInPacific()).trim();
   const sessionTime = normalizeTime(body.session_time);
   const bookingRequestId = String(body.booking_request_id || "").trim();
   const topic = String(body.topic || "").trim();
 
-  if (!normalizedName || body.recording_consent !== true) {
+  if (!normalizedName || (!quietMode && body.recording_consent !== true)) {
     sendJson(req, res, 400, { ok: false, reason: "missing_required_fields" });
     return;
   }
@@ -2790,7 +2935,8 @@ async function handleCheckInRequest(req, res) {
     booking_request_id: bookingRequestId,
     topic,
     timezone: ownerTimezone,
-    recording_consent: true,
+    interaction_mode: quietMode ? "quiet" : "voice",
+    recording_consent: quietMode ? false : true,
     admin_calendar_note: `Admin note: Guest checked in at ${checkedInAt}.`
   };
 
@@ -2813,6 +2959,56 @@ async function handleCheckInRequest(req, res) {
     timezone: request.timezone,
     admin_calendar_note: request.admin_calendar_note,
     capture_corrections: request.capture_corrections
+  });
+}
+
+async function handleQuietCareerStart(req, res) {
+  const body = await readJson(req);
+  const guestName = normalizeGuestName(body.guest_name);
+  const guestEmail = normalizeSpokenEmail(body.guest_email);
+  const topic = String(body.topic || "").trim();
+  if (!guestName || !isEmail(guestEmail) || !topic || body.email_confirmed !== true) {
+    sendJson(req, res, 400, { ok: false, reason: "missing_required_fields" });
+    return;
+  }
+
+  const timeParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: ownerTimezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(new Date());
+  const timeValues = Object.fromEntries(timeParts.map((part) => [part.type, part.value]));
+  const time = `${timeValues.hour}:${timeValues.minute}:${timeValues.second}`;
+  const date = todayInPacific();
+  const end = addMinutesLocal(date, time, sessionMinutes);
+  const request = {
+    request_id: `QUIET-${Date.now().toString(36).toUpperCase()}`,
+    created_at: new Date().toISOString(),
+    queue_type: "career_walk_in",
+    check_in: false,
+    status: "quiet_session_started",
+    calendar_id: "",
+    owner_email: calendarOwnerEmail,
+    guest: { name: guestName, email: guestEmail, topic, phone: "" },
+    date,
+    time,
+    end_date: end.date,
+    end_time: end.time,
+    duration_minutes: sessionMinutes,
+    timezone: ownerTimezone,
+    interaction_mode: "quiet",
+    recording_consent: false,
+    email_confirmed: true
+  };
+  await appendJsonLine(bookingRequestsPath, request);
+  sendJson(req, res, 200, {
+    ok: true,
+    booking_request_id: request.request_id,
+    guest_name: guestName,
+    date,
+    time
   });
 }
 
@@ -2937,6 +3133,7 @@ async function handleCareerSessionMemory(req, res) {
 
 async function handleCareerSessionCompletion(req, res) {
   const body = await readJson(req);
+  const quietMode = body.interaction_mode === "quiet";
   const bookingRequestId = String(body.booking_request_id || "").trim();
   const eventInput =
     body.recommended_event && typeof body.recommended_event === "object"
@@ -2975,7 +3172,7 @@ async function handleCareerSessionCompletion(req, res) {
   if (!nextStep.action) missingFields.push("next_step");
   if (!isIsoDate(nextStep.target_date)) missingFields.push("next_step_target_date");
   if (!nextStep.confirmed) missingFields.push("next_step_confirmed");
-  if (body.recording_consent !== true) missingFields.push("recording_consent");
+  if (!quietMode && body.recording_consent !== true) missingFields.push("recording_consent");
   if (typeof body.email_consent !== "boolean") missingFields.push("email_consent");
 
   if (missingFields.length) {
@@ -3076,7 +3273,8 @@ async function handleCareerSessionCompletion(req, res) {
     email_subject: emailSubject,
     research_follow_up: research,
     research_enhanced: research !== null,
-    recording_consent: true,
+    interaction_mode: quietMode ? "quiet" : "voice",
+    recording_consent: quietMode ? false : true,
     calendar_update_consent: false,
     calendar_update_queued: false,
     email_consent: body.email_consent,
@@ -3148,6 +3346,10 @@ async function handleCareerSessionCompletion(req, res) {
 }
 
 function instructionsForMode(mode) {
+  if (mode === "job-fair-quickstart") {
+    return "You are Pierce, a concise job fair guide. Welcome the attendee, ask for recording consent, and ask one question at a time. Help them identify a career interest, one strength, their immediate challenge, one question for employers, one approved career resource, and one dated next step. Read back the recap for approval and ask whether they want it emailed. Do not invent employers, openings, links, deadlines, or event details.";
+  }
+
   if (mode === "event-intake") {
     return "You are Pierce, a concise participant preparation guide for City Highlights for Careers. Speak in plain, welcoming language and ask one question at a time. Start with: \"Hi, welcome. I can help you prepare for City Highlights for Careers.\" Ask whether this conversation may be recorded, transcribed, and summarized. Stop politely without consent. Collect and confirm the participant's full name, spelling of the last name, exact email, city, current career stage, career goal, biggest challenge, and exactly two questions they want mentors to answer. Ask whether they want to share a resume link; it is optional. Ask whether Pierce may share a short briefing with mentors. Verify the email character by character with verify_guest_email and do not save until it is confirmed. Read back a concise summary, correct anything the participant flags, then call save_event_participant_intake. Close by saying they are prepared and Pierce will see them at the event.";
   }
@@ -3936,6 +4138,7 @@ async function handleRealtimeSession(req, res) {
     "book",
     "check-in",
     "career",
+    "job-fair-quickstart",
     "event-intake",
     "event-mentor",
     "event-check-in",
@@ -3984,6 +4187,9 @@ async function serveStatic(req, res) {
   );
   const event = eventPath ? configuredEvent(decodeURIComponent(eventPath[1])) : null;
   let requestedPath = url.pathname;
+  if (url.pathname === "/email") {
+    requestedPath = "/email.html";
+  }
   if (["/", "/check-in"].includes(url.pathname) || (event && eventPath[2] !== "organizer")) {
     requestedPath = "/index.html";
   }
@@ -4042,6 +4248,11 @@ const server = createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/event/intake/participant") {
       await serializeEventMutation(() => handleEventParticipantIntake(req, res));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/event/job-fair/complete") {
+      await serializeEventMutation(() => handleJobFairQuickStart(req, res));
       return;
     }
 
@@ -4120,6 +4331,11 @@ const server = createServer(async (req, res) => {
 
     if (req.method === "POST" && url.pathname === "/career-session/memory") {
       await handleCareerSessionMemory(req, res);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/career-session/quiet-start") {
+      await serializeBookingMutation(() => handleQuietCareerStart(req, res));
       return;
     }
 

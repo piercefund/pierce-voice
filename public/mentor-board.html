@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Mentor Appointments | Pierce</title>
+    <link rel="stylesheet" href="/mentor-board.css" />
+  </head>
+  <body>
+    <main class="board-shell">
+      <header class="board-header">
+        <div class="board-brand">
+          <div class="board-brand-identity" aria-label="Pierce">
+            <span aria-hidden="true"></span>
+            <strong>Pierce</strong>
+          </div>
+          <span>LIVE MENTOR BOARD</span>
+        </div>
+        <div class="board-heading">
+          <div>
+            <p>San Diego Startup Week</p>
+            <h1>Speed Mentoring Powered by Fōkcus &amp; San Diego &amp; Imperial SBDC</h1>
+            <p class="board-section-name">Mentor appointments</p>
+            <p class="board-details">Monday, November 2 | Pure Project Carlsbad</p>
+          </div>
+          <div class="board-live" aria-live="polite">
+            <span></span>
+            <strong>Live</strong>
+            <time id="lastUpdated"></time>
+          </div>
+        </div>
+      </header>
+
+      <section class="board-summary" aria-label="Appointment summary">
+        <div><strong id="appointmentCount">0</strong><span>appointments</span></div>
+        <div><strong id="checkedInCount">0</strong><span>checked in</span></div>
+        <button id="refreshBoard" type="button">Refresh</button>
+      </section>
+
+      <p id="boardStatus" class="board-status" aria-live="polite">Loading appointments...</p>
+      <section id="boardGroups" class="board-groups" aria-label="Mentor appointments"></section>
+    </main>
+    <script type="module" src="/mentor-board.js"></script>
+  </body>
+</html>

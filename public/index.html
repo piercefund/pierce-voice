@@ -12,20 +12,133 @@
         <div>
           <div class="brand-title">
             <h1>
-              <img src="/pierce-logo-horizontal.svg" alt="Pierce" class="brand-logo" />
+              <a href="https://pierce.fund" aria-label="Visit Pierce Fund">
+                <img src="/pierce-logo-horizontal.svg" alt="Pierce" class="brand-logo" />
+              </a>
             </h1>
           </div>
           <p id="eventEyebrow" class="event-eyebrow" hidden>PIERCE EVENT</p>
           <h2 id="eventTitle" class="event-title" hidden></h2>
           <p id="eventDetails" class="event-details" hidden></p>
-          <p id="modeDescription" class="lede">Schedule a 15-minute session.</p>
-          <p class="phone-option">
+          <div id="jobFairIntro" class="job-fair-intro" hidden>
+            <strong>About 5 minutes</strong>
+            <span>Leave with an employer question, one useful resource, and a dated next step.</span>
+          </div>
+          <div id="startupWeekIntro" class="job-fair-intro" hidden>
+            <strong>No booking required</strong>
+            <span>Tell Pierce what brought you to Startup Week and get three events chosen from the official schedule. Emailing the list is optional.</span>
+          </div>
+          <div id="startupWeekModeSwitch" class="mode-switch startup-week-mode-switch" role="radiogroup" aria-label="Startup Week guide mode" hidden>
+            <button id="startupWeekVoiceButton" class="active" type="button" role="radio" aria-checked="true">
+              Voice Mode
+            </button>
+            <button id="startupWeekQuietButton" type="button" role="radio" aria-checked="false">
+              Quiet Mode
+            </button>
+          </div>
+          <div id="generalExperienceModeSwitch" class="mode-switch experience-mode-switch" role="radiogroup" aria-label="Pierce interaction mode" hidden>
+            <button id="generalVoiceModeButton" class="active" type="button" role="radio" aria-checked="true">
+              Voice Mode
+            </button>
+            <button id="generalQuietModeButton" type="button" role="radio" aria-checked="false">
+              Quiet Mode
+            </button>
+          </div>
+          <section id="startupWeekQuietMode" class="startup-week-quiet" hidden>
+            <div>
+              <h3>Find events quietly</h3>
+              <p>Type what brought you to Startup Week. No voice or microphone is needed.</p>
+            </div>
+            <form id="startupWeekQuietForm">
+              <label for="startupWeekGoal">What are you hoping to get from Startup Week?</label>
+              <textarea id="startupWeekGoal" name="goal" maxlength="500" required></textarea>
+              <fieldset>
+                <legend>Which days can you attend?</legend>
+                <label><input type="checkbox" name="available_date" value="2026-11-02" /> Monday</label>
+                <label><input type="checkbox" name="available_date" value="2026-11-03" /> Tuesday</label>
+                <label><input type="checkbox" name="available_date" value="2026-11-04" /> Wednesday</label>
+                <label><input type="checkbox" name="available_date" value="2026-11-05" /> Thursday</label>
+                <label><input type="checkbox" name="available_date" value="2026-11-06" /> Friday</label>
+                <p>Leave all days unchecked for the full week.</p>
+              </fieldset>
+              <button id="startupWeekQuietSubmit" type="submit">Find My Events</button>
+            </form>
+            <p id="startupWeekQuietStatus" class="mentor-booking-status" aria-live="polite"></p>
+          </section>
+          <section id="guestEmailCapture" class="guest-email-capture" hidden>
+            <div class="guest-email-heading">
+              <h3 id="guestEmailTitle">Career session in Voice Mode</h3>
+              <p id="guestEmailDescription">Type your email so after your session you will receive tailored guidance, one resource, and a clear next step.</p>
+            </div>
+            <form id="guestEmailForm" novalidate>
+              <label for="guestEmail">Email address</label>
+              <div class="guest-email-controls">
+                <input
+                  id="guestEmail"
+                  name="guest_email"
+                  type="email"
+                  inputmode="email"
+                  autocomplete="email"
+                  autocapitalize="none"
+                  spellcheck="false"
+                  required
+                />
+                <button id="guestEmailButton" type="submit">Use this email</button>
+              </div>
+              <input id="guestEmailConfirmed" name="email_confirmed" type="checkbox" checked hidden />
+            </form>
+            <p id="guestEmailStatus" class="guest-email-status sr-only" aria-live="polite"></p>
+          </section>
+          <p id="modeDescription" class="lede"></p>
+          <p id="phoneOption" class="phone-option">
             You can also call Pierce Voice at
             <a href="tel:+18669672844">1-86-OWNPATH-4 (1-866-967-2844)</a>.
           </p>
         </div>
 
-        <div id="modeSwitch" class="mode-switch" role="radiogroup" aria-label="Pierce mode">
+        <section id="mentorBooking" class="mentor-booking" hidden>
+          <div class="mentor-booking-heading">
+            <h3>Book a mentor</h3>
+            <p>Choose a 30-minute small-group session with up to three founders.</p>
+          </div>
+          <form id="mentorBookingForm">
+            <label>Full name<input id="mentorParticipantName" name="participant_name" autocomplete="name" required /></label>
+            <label>Email<input id="mentorParticipantEmail" name="participant_email" type="email" autocomplete="email" required /></label>
+            <label class="mentor-challenge-field">
+              What's the biggest challenge your business is facing?
+              <textarea id="mentorBiggestChallenge" name="biggest_challenge" maxlength="500" required></textarea>
+            </label>
+            <label class="mentor-slot-field">Available appointment<select id="mentorSlot" name="slot" required></select></label>
+            <label class="confirmation-check">
+              <input id="mentorEmailConfirmed" name="email_confirmed" type="checkbox" required />
+              <span>I confirmed that this email is correct.</span>
+            </label>
+            <button id="mentorBookButton" type="submit">Book appointment</button>
+          </form>
+          <p id="mentorBookingStatus" class="mentor-booking-status" aria-live="polite"></p>
+          <section class="mentor-check-in" aria-labelledby="mentorCheckInTitle">
+            <h3 id="mentorCheckInTitle">Check in</h3>
+            <p>Enter the email used for your appointment. No voice or microphone is needed.</p>
+            <form id="mentorCheckInForm">
+              <label>Booking email<input id="mentorCheckInEmail" type="email" autocomplete="email" required /></label>
+              <button type="submit">Check in</button>
+            </form>
+            <p id="mentorCheckInStatus" class="mentor-booking-status" aria-live="polite"></p>
+          </section>
+          <details id="mentorManageBooking" class="mentor-manage-booking">
+            <summary>Cancel or reschedule an appointment</summary>
+            <form id="mentorManageForm">
+              <label>Booking email<input id="mentorManageEmail" name="participant_email" type="email" autocomplete="email" required /></label>
+              <label class="mentor-slot-field">New appointment for rescheduling<select id="mentorRescheduleSlot" name="slot"></select></label>
+              <div class="mentor-manage-actions">
+                <button id="mentorRescheduleButton" type="button">Reschedule</button>
+                <button id="mentorCancelButton" class="danger-button" type="button">Cancel appointment</button>
+              </div>
+            </form>
+          </details>
+        </section>
+
+        <div id="modeSwitch" class="mode-switch" role="radiogroup" aria-label="Pierce mode" hidden>
           <button id="bookModeButton" class="active" type="button" role="radio" aria-checked="true">
             Book
           </button>
@@ -33,6 +146,55 @@
             Check In
           </button>
         </div>
+
+        <section id="generalQuietMode" class="general-quiet-mode" hidden>
+          <div id="quietBookingPanel" hidden>
+            <div class="quiet-mode-heading">
+              <h3>Book quietly</h3>
+              <p>Schedule a 15-minute Pierce session without using a microphone.</p>
+            </div>
+            <form id="quietBookingForm">
+              <label>Full name<input id="quietBookingName" name="guest_name" autocomplete="name" required /></label>
+              <label>Email<input id="quietBookingEmail" name="guest_email" type="email" autocomplete="email" required /></label>
+              <label class="quiet-wide-field">What would you like help with?<textarea id="quietBookingTopic" name="topic" maxlength="500" required></textarea></label>
+              <label>Date<input id="quietBookingDate" name="date" type="date" required /></label>
+              <label>Time<input id="quietBookingTime" name="time" type="time" required /></label>
+              <label class="quiet-confirmation quiet-wide-field">
+                <input id="quietBookingEmailConfirmed" type="checkbox" required />
+                <span>I confirmed that this email is correct.</span>
+              </label>
+              <button class="quiet-wide-field" type="submit">Book session</button>
+            </form>
+            <p id="quietBookingStatus" class="quiet-mode-status" aria-live="polite"></p>
+          </div>
+
+          <div id="quietCareerPanel" hidden>
+            <div class="quiet-mode-heading">
+              <h3>Career session in Quiet Mode</h3>
+              <p>Type your answers to receive tailored guidance, one resource, and a clear next step.</p>
+            </div>
+            <form id="quietCareerForm">
+              <label>Full name<input id="quietCareerName" autocomplete="name" placeholder="Example: Jordan Lee" required /></label>
+              <label>Email for your recap<input id="quietCareerEmail" type="email" autocomplete="email" placeholder="Example: jordan@example.com" required /></label>
+              <label>What city are you in?<input id="quietCareerCity" autocomplete="address-level2" placeholder="Example: San Diego, California" required /></label>
+              <label>How would you like to connect with a mentor?
+                <select id="quietCareerMentorPreference" required>
+                  <option value="either">Online or in person</option>
+                  <option value="online">Online</option>
+                  <option value="in_person">Local and in person</option>
+                </select>
+              </label>
+              <label class="quiet-wide-field">What would make this session useful for you today?<textarea id="quietCareerOutcome" maxlength="700" placeholder="Example: I want to leave with two career paths to explore and a clear first step." required></textarea></label>
+              <label class="quiet-wide-field">What career or kind of work are you considering?<textarea id="quietCareerDirection" maxlength="700" placeholder="Example: I am considering project management, community engagement, or healthcare operations." required></textarea></label>
+              <label class="quiet-wide-field">What strengths, interests, or experience could help?<textarea id="quietCareerStrengths" maxlength="700" placeholder="Example: I am organized, communicate well, and have experience leading volunteers and coordinating events." required></textarea></label>
+              <label class="quiet-wide-field">What feels like the biggest challenge right now?<textarea id="quietCareerChallenge" maxlength="700" placeholder="Example: I am not sure which path fits me best or how to get relevant experience." required></textarea></label>
+              <label class="quiet-wide-field">What is one step you will take next?<textarea id="quietCareerNextStep" maxlength="700" placeholder="Example: I will schedule one informational interview with someone in project management." required></textarea></label>
+              <label>When will you take that step?<input id="quietCareerNextStepDate" type="date" required /></label>
+              <button class="quiet-wide-field" type="submit">Create my career plan</button>
+            </form>
+            <p id="quietCareerStatus" class="quiet-mode-status" aria-live="polite"></p>
+          </div>
+        </section>
 
         <div id="eventModeSwitch" class="mode-switch" role="radiogroup" aria-label="Event option" hidden>
           <button id="eventPrepareButton" class="active" type="button" role="radio" aria-checked="true">
@@ -48,12 +210,12 @@
           <time id="careerTimer" datetime="PT15M">15:00</time>
         </div>
 
-        <div class="controls">
+        <div id="voiceControls" class="controls">
           <button id="startButton" type="button">Start</button>
           <button id="stopButton" type="button" disabled>End</button>
         </div>
 
-        <div class="wave-wrap" aria-hidden="true">
+        <div id="voiceWave" class="wave-wrap" aria-hidden="true">
           <canvas id="waveCanvas" class="wave-canvas"></canvas>
         </div>
         <p id="status" class="sr-only" aria-live="polite">Stopped</p>
@@ -66,9 +228,91 @@
           aria-live="polite"
           aria-atomic="true"
         ></div>
+
+        <section id="guestTakeawayResults" class="startup-week-results" aria-live="polite" hidden>
+          <div class="startup-week-results-heading">
+            <div>
+              <p id="guestTakeawayEyebrow" class="event-eyebrow">YOUR PIERCE TAKEAWAY</p>
+              <h3 id="guestTakeawayTitle">Your summary</h3>
+            </div>
+            <a id="guestTakeawaySourceLink" target="_blank" rel="noopener noreferrer" hidden></a>
+          </div>
+          <p id="guestTakeawayDescription" class="startup-week-source"></p>
+          <ol id="guestTakeawayList" class="startup-week-list"></ol>
+          <section id="guestTakeawayEmail" class="startup-week-email" hidden>
+            <div>
+              <h4 id="guestTakeawayEmailTitle">Email this summary</h4>
+              <p id="guestTakeawayEmailDescription">Receive this takeaway in one email. No subscription or marketing.</p>
+            </div>
+            <form id="guestTakeawayEmailForm" novalidate>
+              <label for="guestTakeawayEmailAddress">Email address</label>
+              <div class="startup-week-email-controls">
+                <input
+                  id="guestTakeawayEmailAddress"
+                  name="guest_email"
+                  type="email"
+                  inputmode="email"
+                  autocomplete="email"
+                  autocapitalize="none"
+                  spellcheck="false"
+                  required
+                />
+                <button id="guestTakeawayEmailButton" type="submit">Email this summary</button>
+              </div>
+              <input
+                id="guestTakeawayEmailCompany"
+                class="startup-week-email-honeypot"
+                name="company"
+                type="text"
+                tabindex="-1"
+                autocomplete="off"
+                aria-hidden="true"
+              />
+            </form>
+            <p id="guestTakeawayEmailStatus" class="startup-week-email-status" aria-live="polite">
+              Your address is used only to send this takeaway.
+              <a href="https://pierce.fund/privacy" target="_blank" rel="noopener noreferrer">Privacy</a>
+            </p>
+          </section>
+          <section id="startupWeekQuietActions" class="startup-week-quiet-actions" hidden>
+            <button id="startupWeekNarrowButton" type="button">Narrow the list</button>
+            <button id="startupWeekFinishButton" type="button">Finish</button>
+            <form id="startupWeekNarrowForm" hidden>
+              <label for="startupWeekPriority">What should Pierce prioritize most?</label>
+              <div>
+                <input id="startupWeekPriority" name="priority" maxlength="300" required />
+                <button type="submit">Update my list</button>
+              </div>
+            </form>
+          </section>
+        </section>
+
+        <section id="careerExplorer" class="career-explorer" aria-labelledby="careerExplorerTitle" hidden>
+          <div class="career-explorer-heading">
+            <p class="event-eyebrow">EXPLORE CAREERS</p>
+            <h3 id="careerExplorerTitle">Learn what a career is really like</h3>
+            <p>Search by job title, skill, or interest. Pierce will show typical work, useful skills, preparation, technology, and related careers.</p>
+          </div>
+          <form id="careerExplorerForm" role="search">
+            <label for="careerExplorerQuery">Career, skill, or interest</label>
+            <div class="career-explorer-search">
+              <input id="careerExplorerQuery" type="search" maxlength="100" placeholder="Example: project manager, healthcare, or design" required />
+              <button type="submit">Search careers</button>
+            </div>
+          </form>
+          <p id="careerExplorerStatus" class="career-explorer-status" aria-live="polite"></p>
+          <div id="careerExplorerResults" class="career-explorer-results" hidden></div>
+          <article id="careerExplorerProfile" class="career-profile" aria-live="polite" hidden></article>
+          <p class="onet-attribution">
+            This site incorporates information from
+            <a href="https://www.onetcenter.org/overview.html" target="_blank" rel="noopener noreferrer">O*NET Web Services</a>
+            by the U.S. Department of Labor, Employment and Training Administration (USDOL/ETA). O*NET® is a trademark of USDOL/ETA.
+          </p>
+        </section>
       </section>
     </main>
 
     <script type="module" src="/app.js"></script>
+    <script type="module" src="/onet.js"></script>
   </body>
 </html>

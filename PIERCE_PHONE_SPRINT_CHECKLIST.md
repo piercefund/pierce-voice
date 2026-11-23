@@ -55,6 +55,10 @@ Enable a guest to call Pierce, choose booking, check-in, or career guidance, com
 - [x] Execute function calls on the server and return results to the Realtime session.
 - [x] End the phone call only after Pierce finishes the complete closing response.
 - [x] Add clear server logs without recording secrets or full guest details.
+- [x] Add a SQLite-backed Cloudflare Durable Object for each phone call.
+- [x] Persist webhook and function-call idempotency across Worker restarts.
+- [x] Route phone tools through the Cloudflare booking, check-in, career,
+      Calendar, Gmail, R2, and HubSpot implementations.
 
 ## 5. End-to-End Tests
 
@@ -71,6 +75,9 @@ Enable a guest to call Pierce, choose booking, check-in, or career guidance, com
 - [ ] Confirm Pierce finishes speaking before the call disconnects.
 - [ ] Confirm declining recording consent ends the flow politely without saving a request.
 - [ ] Confirm the existing browser experience still works after the phone changes.
+- [x] Run the complete 30-test browser, event, integration, and phone suite.
+- [ ] Complete all three phone journeys through an isolated Cloudflare staging
+      webhook before production cutover.
 
 ## 6. Launch Readiness
 

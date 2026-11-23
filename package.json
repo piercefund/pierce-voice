@@ -5,13 +5,21 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test --test-concurrency=1"
+    "refresh:startup-week": "node scripts/refresh-startup-week-schedule.mjs",
+    "test": "node --test --test-concurrency=1",
+    "test:cloudflare": "node --test test/cloudflare-worker.test.mjs",
+    "test:custom-llm": "node --test test/cloudflare-custom-llm.test.mjs",
+    "test:elevenlabs-tools": "node --test test/cloudflare-elevenlabs-tools.test.mjs"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "jose": "^6.2.13",
     "openai": "^7.4.0",
     "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "wrangler": "^4.135.0"
   }
 }

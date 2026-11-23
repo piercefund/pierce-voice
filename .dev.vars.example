@@ -1,0 +1,10 @@
+# Copy to .dev.vars for local Worker development. Never commit the real value.
+OPENAI_API_KEY="replace-with-a-development-key"
+OPENAI_WEBHOOK_SECRET="replace-with-a-development-webhook-secret"
+TWILIO_ACCOUNT_SID="replace-with-a-development-account-sid"
+TWILIO_AUTH_TOKEN="replace-with-a-development-auth-token"
+CF_ACCESS_TEAM_DOMAIN="https://YOUR_TEAM_NAME.cloudflareaccess.com"
+CF_ACCESS_AUD="YOUR_ACCESS_APPLICATION_AUD_TAG"
+PIERCE_MENTOR_NOTIFICATION_EMAIL="voice@pierce.fund"
+ONET_API_KEY="replace-with-a-development-onet-v2-key"
+ELEVENLABS_LLM_BEARER_TOKEN="replace-with-a-random-secret-of-at-least-32-characters"

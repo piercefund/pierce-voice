@@ -1,0 +1,149 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "pierce-voice-cloudflare",
+  "main": "./src/cloudflare-worker.mjs",
+  "compatibility_date": "2026-09-23",
+  "workers_dev": true,
+  "preview_urls": true,
+  "ai": {
+    "binding": "AI"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "PHONE_CALLS",
+        "class_name": "PiercePhoneCall"
+      },
+      {
+        "name": "EMAIL_LINKS",
+        "class_name": "PierceEmailLink"
+      }
+    ]
+  },
+  "r2_buckets": [
+    {
+      "binding": "PIERCE_DATA",
+      "bucket_name": "pierce-voice-production-data"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "HUBSPOT_SYNC_QUEUE",
+        "queue": "pierce-hubspot-production"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "pierce-hubspot-production",
+        "max_batch_size": 1,
+        "max_batch_timeout": 5,
+        "max_retries": 5,
+        "retry_delay": 30,
+        "max_concurrency": 1,
+        "dead_letter_queue": "pierce-hubspot-production-dlq"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1-phone-calls",
+      "new_sqlite_classes": ["PiercePhoneCall"]
+    },
+    {
+      "tag": "v2-email-links",
+      "new_sqlite_classes": ["PierceEmailLink"]
+    }
+  ],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "html_handling": "none",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
+  "observability": {
+    "enabled": true,
+    "traces": {
+      "enabled": true
+    }
+  },
+  "vars": {
+    "PIERCE_ENV": "production",
+    "PIERCE_PUBLIC_BASE_URL": "https://voice.pierce.fund",
+    "PIERCE_CHECK_IN_URL": "https://voice.pierce.fund/check-in",
+    "PIERCE_EMAIL_ENTRY_BASE_URL": "https://voice.pierce.fund",
+    "OPENAI_API_BASE": "https://api.openai.com",
+    "OPENAI_REALTIME_WS_URL": "https://api.openai.com/v1/realtime",
+    "OPENAI_REALTIME_MODEL": "gpt-realtime-2.1",
+    "PIERCE_PHONE_VOICE": "marin",
+    "PIERCE_PHONE_HANGUP_GRACE_MS": "10000",
+    "TWILIO_FROM_NUMBER": "+18669672844",
+    "GOOGLE_CLIENT_ID": "112314776424-bgetroctfblv8m823o53a827hikf9oqk.apps.googleusercontent.com",
+    "GOOGLE_OAUTH_REDIRECT_URI": "https://voice.pierce.fund/calendar/oauth/callback",
+    "GOOGLE_CALENDAR_ACCOUNT_EMAIL": "voice@pierce.fund",
+    "PIERCE_MENTOR_NOTIFICATION_EMAIL": "voice@pierce.fund"
+  },
+  "env": {
+    "staging": {
+      "name": "pierce-voice-cloudflare-staging",
+      "ai": {
+        "binding": "AI"
+      },
+      "vars": {
+        "PIERCE_ENV": "staging",
+        "PIERCE_PUBLIC_BASE_URL": "https://pierce-voice-cloudflare-staging.piercefund.workers.dev",
+        "PIERCE_CHECK_IN_URL": "https://pierce-voice-cloudflare-staging.piercefund.workers.dev/check-in",
+        "OPENAI_API_BASE": "https://api.openai.com",
+        "OPENAI_REALTIME_WS_URL": "https://api.openai.com/v1/realtime",
+        "OPENAI_REALTIME_MODEL": "gpt-realtime-2.1",
+        "PIERCE_PHONE_VOICE": "marin",
+        "PIERCE_PHONE_HANGUP_GRACE_MS": "10000",
+        "PIERCE_EMAIL_ENTRY_BASE_URL": "https://pierce-voice-cloudflare-staging.piercefund.workers.dev",
+        "TWILIO_FROM_NUMBER": "+18669672844",
+        "CF_ACCESS_TEAM_DOMAIN": "https://piercefund.cloudflareaccess.com",
+        "CF_ACCESS_AUD": "f6ccb6ea0fe61ef7bc6dd330dcb632ffb5d324c2a546c5a361359f58c17b4682",
+        "GOOGLE_OAUTH_REDIRECT_URI": "https://pierce-voice-cloudflare-staging.piercefund.workers.dev/calendar/oauth/callback",
+        "GOOGLE_CALENDAR_ACCOUNT_EMAIL": "voice@pierce.fund",
+        "PIERCE_MENTOR_NOTIFICATION_EMAIL": "voice@pierce.fund"
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "PHONE_CALLS",
+            "class_name": "PiercePhoneCall"
+          },
+          {
+            "name": "EMAIL_LINKS",
+            "class_name": "PierceEmailLink"
+          }
+        ]
+      },
+      "r2_buckets": [
+        {
+          "binding": "PIERCE_DATA",
+          "bucket_name": "pierce-voice-staging-data"
+        }
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "HUBSPOT_SYNC_QUEUE",
+            "queue": "pierce-hubspot-staging"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "pierce-hubspot-staging",
+            "max_batch_size": 1,
+            "max_batch_timeout": 5,
+            "max_retries": 5,
+            "retry_delay": 30,
+            "max_concurrency": 1,
+            "dead_letter_queue": "pierce-hubspot-staging-dlq"
+          }
+        ]
+      }
+    }
+  }
+}

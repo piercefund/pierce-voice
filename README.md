@@ -1,7 +1,9 @@
-# Pierce Realtime WebRTC Voice Agent
+# Pierce Voice
 
-Small local browser app using the OpenAI Realtime API, WebRTC, and `gpt-realtime-2.1`.
-Pierce supports three acts in one voice interface: book a 15-minute session, check in by booking name, and complete a focused 15-minute career guidance session. When Google Calendar is connected, booking checks availability and sends the guest invitation immediately.
+Pierce is a Cloudflare Workers application for booking, check-in, event support,
+and focused 15-minute career guidance. Quiet Mode uses IBM Granite 4.0 H Micro
+through Workers AI. The current live speech path still uses OpenAI Realtime while
+the separate ElevenLabs migration is completed.
 
 ## Setup
 
@@ -28,80 +30,51 @@ Pierce supports three acts in one voice interface: book a 15-minute session, che
 5. Open http://localhost:3000, choose `Book` or `Check In`, and allow microphone access. A checked-in guest can then start their career session without repeating their identity or booking lookup.
 6. Use the primary button to begin. Pierce ends the voice session automatically after a successful close; `End` remains available if a guest needs to stop early.
 
-## Google Cloud Run
+## Cloudflare production
 
-Pierce can run on Google Cloud Run instead of a localhost and ngrok tunnel. Cloud Run provides a stable HTTPS service URL and injects the `PORT` environment variable automatically. In Cloud Run, Pierce listens on `0.0.0.0`; locally, it continues to default to `127.0.0.1`.
+Production runs as the `pierce-voice-cloudflare` Worker configured by
+[`wrangler.jsonc`](./wrangler.jsonc). The architecture uses:
 
-Before deploying, install and sign in to the Google Cloud CLI, select your Google Cloud project, and enable billing for that project:
+- Workers and Static Assets for the application and API.
+- Workers AI with `@cf/ibm-granite/granite-4.0-h-micro` for the small-model
+  career-session path.
+- Private R2 buckets for structured records. Raw audio and full verbatim
+  transcripts are not stored in Pierce-controlled storage.
+- A per-call SQLite Durable Object for temporary phone state. Its retention
+  deadline is set when the call begins and temporary state is deleted within
+  24 hours.
+- Cloudflare Access for organizer and review routes.
+- Queues for HubSpot synchronization.
 
-```bash
-gcloud auth login
-gcloud config set project YOUR_PROJECT_ID
-gcloud config set run/region us-west1
-```
-
-Create secrets in Secret Manager. Do not commit these values to GitHub:
-
-```bash
-printf '%s' 'YOUR_OPENAI_API_KEY' | gcloud secrets create pierce-openai-api-key --data-file=-
-printf '%s' 'YOUR_OPENAI_WEBHOOK_SECRET' | gcloud secrets create pierce-openai-webhook-secret --data-file=-
-printf '%s' 'YOUR_GOOGLE_CLIENT_SECRET' | gcloud secrets create pierce-google-client-secret --data-file=-
-printf '%s' 'YOUR_GOOGLE_REFRESH_TOKEN' | gcloud secrets create pierce-google-calendar-refresh-token --data-file=-
-printf '%s' 'YOUR_HUBSPOT_SERVICE_KEY' | gcloud secrets create pierce-hubspot-service-key --data-file=-
-```
-
-Deploy from the repository root:
+Install dependencies, run the test suite, and perform a dry run before a
+production deployment:
 
 ```bash
-PROJECT_ID="$(gcloud config get-value project)"
-PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
-PIERCE_STORAGE_BUCKET="${PROJECT_ID}-pierce-data"
-
-gcloud services enable storage.googleapis.com
-
-gcloud storage buckets create "gs://${PIERCE_STORAGE_BUCKET}" \
-  --location=us-west1 \
-  --uniform-bucket-level-access
-
-gcloud storage buckets add-iam-policy-binding "gs://${PIERCE_STORAGE_BUCKET}" \
-  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
-  --role=roles/storage.objectAdmin
-
-gcloud run deploy pierce-voice \
-  --source . \
-  --allow-unauthenticated \
-  --timeout=3600 \
-  --min-instances=1 \
-  --max-instances=1 \
-  --no-cpu-throttling \
-  --session-affinity \
-  --set-env-vars PIERCE_PUBLIC_URL=https://voice.pierce.fund,PIERCE_CALENDAR_OWNER_EMAIL=voice@pierce.fund,GOOGLE_CALENDAR_ACCOUNT_EMAIL=voice@pierce.fund,GOOGLE_OAUTH_REDIRECT_URI=https://voice.pierce.fund/calendar/oauth/callback,PIERCE_STORAGE_BUCKET="${PIERCE_STORAGE_BUCKET}",PIERCE_STORAGE_PREFIX=pierce-data,PIERCE_RESEARCH_ENABLED=true,PIERCE_RESEARCH_MODEL=gpt-5 \
-  --set-secrets OPENAI_API_KEY=pierce-openai-api-key:latest,OPENAI_WEBHOOK_SECRET=pierce-openai-webhook-secret:latest,GOOGLE_CLIENT_SECRET=pierce-google-client-secret:latest,GOOGLE_CALENDAR_REFRESH_TOKEN=pierce-google-calendar-refresh-token:latest,HUBSPOT_SERVICE_KEY=pierce-hubspot-service-key:latest
+npm ci
+npm test
+npx wrangler deploy --dry-run
 ```
 
-Set `GOOGLE_CLIENT_ID` as a regular environment variable in Cloud Run or add it to the deploy command once the OAuth client is created. In the Google OAuth client, add this authorized redirect URI:
+Deploy the top-level production environment only after its bindings and secrets
+have been verified:
 
-```text
-https://voice.pierce.fund/calendar/oauth/callback
+```bash
+npx wrangler deploy
 ```
 
-After deployment, update the OpenAI Realtime webhook endpoint to:
+Never put secret values in `wrangler.jsonc`, `.dev.vars.example`, source files,
+or Git history. Production secrets are configured through Cloudflare's secret
+store. `.dev.vars` is ignored and is only for local development.
 
-```text
-https://voice.pierce.fund/webhooks/openai/realtime
-```
+The production Worker expects the R2, Durable Object, Queue, Workers AI, and
+Static Assets bindings declared in `wrangler.jsonc`. The separately deployed
+staging environment is selected with `--env staging`; do not use staging data or
+bindings for production tests.
 
-The deploy command uses one always-on instance because Pierce's phone mode accepts a webhook and then keeps an outbound Realtime WebSocket alive. If you only use browser booking and check-in, you can remove `--min-instances=1` and `--no-cpu-throttling` to reduce cost.
-
-When `PIERCE_STORAGE_BUCKET` is set, Pierce stores booking, check-in, career summary, event recap, email queue, and HubSpot sync JSONL records in that Cloud Storage bucket under `PIERCE_STORAGE_PREFIX`. Locally, or when the bucket is not set, Pierce still uses the ignored `work/` folder. Cloud Run local storage is temporary, so production deployments should keep `PIERCE_STORAGE_BUCKET` configured.
-
-Career follow-up emails use saved session history to name each message by occurrence, such as `Financial Trading Career - Initial Session` and `Financial Trading Career - Second Session`. When `PIERCE_RESEARCH_ENABLED=true`, Pierce also uses an extra OpenAI research pass to add one targeted local resource, one targeted local event or trusted event page, and brief context for the guest's next step. If the research pass is unavailable, the session still saves and the regular follow-up email is sent.
-
-Career sessions also include a SCORE mentor connection. Pierce frames SCORE as a free one-on-one mentoring path with experienced business mentors, including retired executives or managers when available. Guests can choose online, local in-person, or either as their mentoring preference; local availability depends on SCORE chapters, while online mentoring remains the default national path.
-
-For guests ages 14 to 24, Pierce asks a youth-program check before the four discovery questions. If the guest is in that age range, Pierce explains that special San Diego career programs may be available, asks whether they want help with career exploration, training, an internship or job, or a mentor, and prioritizes SBCS, SDSU Careers, International Rescue Committee San Diego, or Climb Hire San Diego when one fits. Pierce must preserve eligibility caveats and must not imply every 14 to 24 year old qualifies for every program; Climb Hire eligibility should be checked before assuming it applies.
-
-For returning guests, Pierce can use the previous career-session summary to ask one follow-up question about the last confirmed next step before starting the new discovery questions. To protect privacy, Pierce unlocks that memory only after the guest confirms the exact email used for the current booking. The follow-up answer is saved as part of the new career-session summary.
+Before a DNS cutover, verify the Worker on its `workers.dev` hostname, including
+health, persistence, Calendar/Gmail, signed phone webhooks, and Access-protected
+organizer routes. Keep the previous Google Cloud Run service intact as a
+rollback origin until the separately approved decommission task.
 
 ## City Highlights Pilot
 
@@ -122,7 +95,7 @@ export PIERCE_EVENT_DATE_LABEL="September 2026"
 export PIERCE_EVENT_LOCATION_LABEL="Cafe location shared with participants"
 ```
 
-Event records are stored in `work/event-intakes.jsonl`, `work/event-check-ins.jsonl`, and `work/event-session-summaries.jsonl` locally, or in Cloud Storage when `PIERCE_STORAGE_BUCKET` is set. Keep the `work/` folder private and persistent when running locally. The organizer review route is intentionally available only from the Pierce computer through `localhost`.
+Event records are stored in `work/event-intakes.jsonl`, `work/event-check-ins.jsonl`, and `work/event-session-summaries.jsonl` locally, or in the private `PIERCE_DATA` R2 bucket on Cloudflare. Keep the `work/` folder private and persistent when running locally. Deployed organizer and review routes require an authenticated Cloudflare Access identity.
 
 ## Phone Setup
 
@@ -170,7 +143,7 @@ On an incoming call, the signed webhook accepts the supplied `call_id`, opens th
 - In booking mode, the browser registers email verification, existing-booking lookup, cancellation, and booking-request tools with `session.update`.
 - In check-in mode, the browser registers `find_guest_session(guest_name, date)` and `prepare_check_in_request(guest_name, recording_consent, date, session_time, topic, booking_request_id)` with `session.update`.
 - In career mode, Pierce finds the guest's booking, asks for their city, checks whether they are ages 14 to 24 for San Diego youth-program guidance, asks exactly four discovery questions, recommends one SCORE mentor connection, exactly one locally relevant event, and one approved resource, then confirms one next step and date.
-- Career session summaries are saved to `work/career-session-summaries.jsonl` locally, or to the configured Cloud Storage bucket in Cloud Run.
+- Career session summaries are saved to `work/career-session-summaries.jsonl` locally, or to the private `PIERCE_DATA` R2 bucket on Cloudflare.
 - Returning career sessions can include one follow-up question about the prior confirmed next step after the guest confirms the exact booking email. Pierce saves the answer with the new session.
 - With consent, Pierce sends the career summary from `voice@pierce.fund` and records the delivery in `work/follow-up-emails.jsonl`. The subject reflects the career focus and session occurrence. If Gmail delivery is unavailable, the record is kept with status `pending_delivery` instead of being lost.
 - Career summaries stay out of the calendar invitation; the invitation remains focused on the appointment and check-in link.
@@ -180,8 +153,8 @@ On an incoming call, the signed webhook accepts the supplied `call_id`, opens th
 - Pierce collects email in parts, reads every character and punctuation mark back, and replaces the earlier value completely whenever the guest corrects it.
 - After the exact email is confirmed, Pierce checks for active bookings. A guest can keep, cancel, or replace an existing session, and the server prevents a second active booking from being saved.
 - Pierce starts with "Hi, welcome," gets recording consent first, leads one question at a time, and says a session is booked only after Google confirms the event and invitation.
-- Successful bookings and pending fallback requests are recorded in `work/booking-requests.jsonl` locally, or to the configured Cloud Storage bucket in Cloud Run.
-- Check-ins ask for recording consent and the booking name, look up matching saved sessions, read back the date, time, and reason, then write pending admin updates to `work/check-in-requests.jsonl` locally, or to the configured Cloud Storage bucket in Cloud Run.
+- Successful bookings and pending fallback requests are recorded in `work/booking-requests.jsonl` locally, or to the private `PIERCE_DATA` R2 bucket on Cloudflare.
+- Check-ins ask for recording consent and the booking name, look up matching saved sessions, read back the date, time, and reason, then write pending admin updates to `work/check-in-requests.jsonl` locally, or to the private `PIERCE_DATA` R2 bucket on Cloudflare.
 - Lookup times are shown and spoken in 12-hour Pacific time, such as `1:00 PM`.
 - After a successful check-in, the app carries the confirmed booking into `Career Session`, presents `Start career session`, and does not ask the guest to identify themselves again. The 15-minute timer begins only when the guest starts it.
 - On phone calls, Pierce asks one combined consent for check-in plus the career session when the caller checks in and continues in the same call. In the browser flow, check-in and career session remain separate screens with clear consent prompts.
