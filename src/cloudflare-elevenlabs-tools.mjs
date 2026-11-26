@@ -1,8 +1,16 @@
+import { formatCareerRecap } from "./pierce-career-recap-email.mjs";
 import { getOnetOccupationOverview, searchOnetOccupations } from "./cloudflare-onet.mjs";
+import { sendGmail } from "./cloudflare-google-api.mjs";
+import { createGuestTakeaway, emailGuestTakeaway } from "./cloudflare-guest-takeaway.mjs";
 import { PIERCE_APPROVED_RESOURCES, publicResource } from "./pierce-approved-resources.mjs";
 
 const ONET_ROUTE = "/tools/lookup-onet-career";
 const RESOURCE_ROUTE = "/tools/lookup-resource-directory";
+const TEST_RECAP_ROUTE = "/tools/send-test-recap";
+const GUEST_RECAP_ROUTE = "/tools/prepare-guest-recap";
+const VOICE_RECAP_ROUTE = "/tools/send-voice-recap";
+const WEB_RECAP_KIND = "elevenlabs_web_recap";
+const TEST_RECAP_RECIPIENT = "voice@pierce.fund";
 const MAX_BODY_BYTES = 16 * 1024;
 const MAX_RESULTS = 5;
 
@@ -77,23 +85,21 @@ function overlapScore(queryWords, value) {
   return score;
 }
 
-function resourceScore(resource, query, location) {
-  const queryWords = words(query);
-  const searchable = [resource.name, resource.description, ...resource.categories].join(" ");
-  let score = overlapScore(queryWords, searchable) * 4;
-  const normalizedQuery = query.toLowerCase();
-  for (const category of resource.categories) {
-    if (normalizedQuery.includes(category.toLowerCase())) score += 6;
+function normalizedPhrase(value) {
+  return [...value.toLowerCase().matchAll(/[a-z0-9]+/g)].map(([word]) => word).join(" ");
+}
+
+function matchLocalProgram(resource, query, location) {
+  const region = normalizedPhrase(location);
+  const californiaSuffix = /(?:^| )(?:ca|california)(?: (?:us|usa|united states))?$/;
+  const city = region.replace(californiaSuffix, "");
+  if (!resource.serviceArea.includes(city) && !(resource.statewideCalifornia && californiaSuffix.test(region))) {
+    return null;
   }
-  if (location) {
-    const normalizedLocation = location.toLowerCase();
-    if (resource.locations.some((item) => normalizedLocation.includes(item) || item.includes(normalizedLocation))) {
-      score += 5;
-    } else if (!resource.locations.includes("online")) {
-      score -= 2;
-    }
-  }
-  return score;
+  const phrase = ` ${normalizedPhrase(query)} `;
+  return resource.programs.find(({ keywords }) =>
+    keywords.some((word) => phrase.includes(` ${word} `))
+  );
 }
 
 async function lookupOnet(body, env, fetchImpl) {
@@ -120,39 +126,99 @@ function lookupResources(body) {
   const query = boundedText(body.query, 200, true);
   const location = boundedText(body.location, 100);
   const limit = boundedLimit(body.limit);
-  const ranked = Object.keys(PIERCE_APPROVED_RESOURCES)
-    .map((key) => ({ resource: publicResource(key), score: resourceScore(PIERCE_APPROVED_RESOURCES[key], query, location) }))
-    .sort((left, right) => right.score - left.score || left.resource.name.localeCompare(right.resource.name));
-  const positive = ranked.filter((item) => item.score > 0);
-  const selected = (positive.length ? positive : ranked).slice(0, limit).map((item) => item.resource);
+  const queryWords = words(query);
+  const ranked = Object.entries(PIERCE_APPROVED_RESOURCES).flatMap(([key, resource]) => {
+    if (resource.serviceArea) {
+      const program = matchLocalProgram(resource, query, location);
+      if (!program) return [];
+      const { name, url, note } = program;
+      const specific = program.keywords.some((keyword) =>
+        keyword.includes(" ") && ` ${normalizedPhrase(query)} `.includes(` ${keyword} `)
+      );
+      return [{ resource: { ...publicResource(key), program: { name, url, note }, fit: "local" }, score: specific ? 110 : 100 }];
+    }
+    const searchable = [resource.name, resource.description, ...resource.categories].join(" ");
+    return [{ resource: { ...publicResource(key), fit: "national" }, score: overlapScore(queryWords, searchable) }];
+  }).sort((left, right) => right.score - left.score || left.resource.name.localeCompare(right.resource.name));
+  const selected = ranked.slice(0, limit).map(({ resource }) => resource);
   return response({
     ok: true,
     query,
     location,
     results: selected,
-    instruction: "Recommend only a returned resource. Repeat its eligibility note when present."
+    instruction: "Prioritize a returned local program that fits the stated need. Share the program note and preserve the exact provider name in recaps. Confirm current intake and eligibility with the provider. If location is missing, ask for city and state in one question only when it would improve the recommendation. Continue with national options if the guest declines."
   });
 }
 
 export async function handleElevenLabsToolRoute(request, env, fetchImpl = fetch) {
   const pathname = new URL(request.url).pathname;
-  if (![ONET_ROUTE, RESOURCE_ROUTE].includes(pathname)) return null;
+  if (![ONET_ROUTE, RESOURCE_ROUTE, TEST_RECAP_ROUTE, GUEST_RECAP_ROUTE, VOICE_RECAP_ROUTE].includes(pathname)) return null;
   if (request.method !== "POST") return response({ ok: false, error: "Method not allowed." }, 405);
   if (!(await authenticated(request, env))) return response({ ok: false, error: "Unauthorized." }, 401);
 
   try {
     const body = await readJson(request);
+    if (pathname === VOICE_RECAP_ROUTE) {
+      if (body.email_confirmed !== true || body.email_consent !== true) {
+        return response({ ok: false, error: "Email consent and address confirmation are required." }, 400);
+      }
+      return await emailGuestTakeaway({
+        delivery_id: body.delivery_id,
+        guest_email: body.email,
+        email_consent: true
+      }, env, { requiredKind: WEB_RECAP_KIND });
+    }
+    if (pathname === GUEST_RECAP_ROUTE) {
+      if (body.email_consent !== true) {
+        return response({ ok: false, error: "Email consent is required." }, 400);
+      }
+      const fields = [
+        ["Career goal", boundedText(body.career_goal, 240, true)],
+        ["Strength", boundedText(body.strength, 240)],
+        ["Guidance", boundedText(body.guidance, 450, true)],
+        ["Next step", boundedText(body.next_step, 280, true)]
+      ];
+      const recap = await createGuestTakeaway(env, {
+        kind: WEB_RECAP_KIND,
+        subject: "Your Pierce career session recap",
+        ...formatCareerRecap(fields.filter(([, value]) => value))
+      });
+      if (!recap.email_available) return response({ ok: false, error: "Recap delivery is unavailable." }, 503);
+      const link = new URL("/recap-email.html", request.url);
+      link.hash = recap.delivery_id;
+      return response({ ok: true, delivery_id: recap.delivery_id, delivery_url: link.href });
+    }
+    if (pathname === TEST_RECAP_ROUTE) {
+      if (env.PIERCE_TEST_RECAP_ENABLED !== "true") {
+        return response({ ok: false, error: "Test delivery is unavailable." }, 503);
+      }
+      if (
+        body.email_consent !== true || body.email_confirmed !== true ||
+        typeof body.email !== "string" || body.email.trim().toLowerCase() !== TEST_RECAP_RECIPIENT
+      ) {
+        return response({ ok: false, error: "The test address or confirmation is invalid." }, 400);
+      }
+      await sendGmail(env, {
+        to: TEST_RECAP_RECIPIENT,
+        subject: "Pierce Voice — test recap",
+        body: "This is a fictional Pierce Voice recap.\n\nGoal: Explore a career in architecture.\nNext step: Compare architecture programs and write down one question to ask an admissions adviser."
+      });
+      return response({ ok: true, sent: true });
+    }
     if (pathname === ONET_ROUTE) return await lookupOnet(body, env, fetchImpl);
     return lookupResources(body);
   } catch (error) {
     if (error instanceof SyntaxError || error instanceof TypeError || error instanceof RangeError) {
       return response({ ok: false, error: "Invalid tool request." }, 400);
     }
-    return response({ ok: false, error: "The lookup is temporarily unavailable." }, 502);
+    return response({ ok: false, error: "The tool is temporarily unavailable." }, 502);
   }
 }
 
 export const ELEVENLABS_TOOL_ROUTES = Object.freeze({
   lookup_onet_career: ONET_ROUTE,
-  lookup_resource_directory: RESOURCE_ROUTE
+  lookup_resource_directory: RESOURCE_ROUTE,
+  send_test_recap: TEST_RECAP_ROUTE,
+  prepare_guest_recap: GUEST_RECAP_ROUTE,
+  send_voice_recap: VOICE_RECAP_ROUTE
 });

@@ -202,11 +202,22 @@ function base64UrlUtf8(value) {
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 }
 
-export async function sendGmail(env, { to, subject, body }) {
+export async function sendGmail(env, { to, subject, body, html }) {
   const sender = env.GOOGLE_CALENDAR_ACCOUNT_EMAIL || "voice@pierce.fund";
   const clean = (value) => String(value || "").replace(/[\r\n]+/g, " ").trim();
-  const raw = base64UrlUtf8([`From: Pierce <${clean(sender)}>`, `To: ${clean(to)}`, `Subject: ${clean(subject)}`,
-    "MIME-Version: 1.0", 'Content-Type: text/plain; charset="UTF-8"', "Content-Transfer-Encoding: 8bit", "", String(body || "")].join("\r\n"));
+  const headers = [`From: Pierce <${clean(sender)}>`, `To: ${clean(to)}`, `Subject: ${clean(subject)}`, "MIME-Version: 1.0"];
+  const textPart = ['Content-Type: text/plain; charset="UTF-8"', "Content-Transfer-Encoding: 8bit", "", String(body || "")];
+  let message = textPart;
+  if (html) {
+    const boundary = `pierce-${crypto.randomUUID()}`;
+    message = [
+      `Content-Type: multipart/alternative; boundary="${boundary}"`, "",
+      `--${boundary}`, ...textPart,
+      `--${boundary}`, 'Content-Type: text/html; charset="UTF-8"', "Content-Transfer-Encoding: 8bit", "", html,
+      `--${boundary}--`
+    ];
+  }
+  const raw = base64UrlUtf8([...headers, ...message].join("\r\n"));
   return googleRequest(env, env.GOOGLE_GMAIL_API_BASE || "https://gmail.googleapis.com/gmail/v1", "/users/me/messages/send",
     { method: "POST", body: JSON.stringify({ raw }) });
 }

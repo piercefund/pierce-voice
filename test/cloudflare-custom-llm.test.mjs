@@ -191,3 +191,45 @@ test("returns a generic upstream error without leaking model or participant deta
   assert.doesNotMatch(text, /private participant answer|provider failure/);
   assert.match(text, /upstream_error/);
 });
+
+test("ends a repeated directory lookup and suppresses split planning tags", async () => {
+  const call = {
+    id: "directory-1",
+    type: "function",
+    function: { name: "lookup_resource_directory", arguments: '{"query":"beginner AI"}' }
+  };
+  const body = baseBody();
+  body.messages.push(
+    { role: "assistant", content: null, tool_calls: [call] },
+    { role: "tool", content: '{"results":[]}', tool_call_id: call.id }
+  );
+  body.tools = [{
+    type: "function",
+    function: { name: call.function.name, parameters: { type: "object" } }
+  }];
+  const response = await handleCustomLlmRoute(request(body), env(async (_model, input) => {
+    assert.deepEqual(input.tools, []);
+    return stream(
+      { response: "[th" },
+      { response: "ought] I will search again." },
+      { tool_calls: [call] }
+    );
+  }));
+  const chunks = await ssePayloads(response);
+  assert.equal(chunks.at(-1).choices[0].finish_reason, "stop");
+  assert.match(JSON.stringify(chunks), /What would you like to focus on next/);
+  assert.doesNotMatch(JSON.stringify(chunks), /thought|search again|lookup_resource_directory/);
+});
+
+test("keeps the resource lookup available when recap confirmation includes a question", async () => {
+  const body = baseBody({
+    messages: [{ role: "user", content: "It does, and I'm in San Diego. Is there anything in San Diego" }],
+    tools: ["end_call", "complete_career_session", "prepare_guest_recap", "lookup_resource_directory"]
+      .map((name) => ({ type: "function", function: { name, parameters: { type: "object" } } }))
+  });
+  const response = await handleCustomLlmRoute(request(body), env(async (_model, input) => {
+    assert.deepEqual(input.tools.map(({ function: tool }) => tool.name), ["lookup_resource_directory"]);
+    return stream({ response: "I can help you explore San Diego options." });
+  }));
+  assert.equal((await ssePayloads(response)).at(-1).choices[0].finish_reason, "stop");
+});

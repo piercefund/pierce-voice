@@ -39,7 +39,7 @@ async function recipientHash(email) {
     .join("");
 }
 
-export async function createGuestTakeaway(env, { kind = "summary", subject, body } = {}) {
+export async function createGuestTakeaway(env, { kind = "summary", subject, body, html } = {}) {
   const cleanSubject = String(subject || "").replace(/[\r\n]+/g, " ").trim().slice(0, 180);
   const cleanBody = String(body || "").trim().slice(0, 48 * 1024);
   if (!env?.PIERCE_DATA || !googleConfigured(env) || !cleanSubject || !cleanBody) {
@@ -56,7 +56,8 @@ export async function createGuestTakeaway(env, { kind = "summary", subject, body
     created_at: createdAt.toISOString(),
     expires_at: new Date(createdAt.getTime() + DELIVERY_TTL_MS).toISOString(),
     subject: cleanSubject,
-    body: cleanBody
+    body: cleanBody,
+    ...(html ? { html } : {})
   };
 
   try {
@@ -82,8 +83,7 @@ export async function createGuestTakeaway(env, { kind = "summary", subject, body
   }
 }
 
-async function emailGuestTakeaway(request, env) {
-  const body = await requestJson(request);
+export async function emailGuestTakeaway(body, env, { requiredKind } = {}) {
   if (String(body.company || "").trim()) {
     return json({ ok: false, reason: "invalid_request" }, 400);
   }
@@ -105,6 +105,9 @@ async function emailGuestTakeaway(request, env) {
     delivery = JSON.parse(await object.text());
   } catch {
     return json({ ok: false, reason: "takeaway_unavailable" }, 503);
+  }
+  if (requiredKind && delivery.kind !== requiredKind) {
+    return json({ ok: false, reason: "takeaway_unavailable" }, 404);
   }
   if (Date.parse(delivery.expires_at) <= Date.now()) {
     if (typeof env.PIERCE_DATA.delete === "function") await env.PIERCE_DATA.delete(key);
@@ -133,7 +136,8 @@ async function emailGuestTakeaway(request, env) {
     const sent = await sendGmail(env, {
       to: email,
       subject: processing.subject,
-      body: processing.body
+      body: processing.body,
+      html: processing.html
     });
     providerMessageId = String(sent.id || "");
   } catch (error) {
@@ -181,7 +185,7 @@ export async function handleGuestTakeawayRoute(request, env) {
     return null;
   }
   try {
-    return await emailGuestTakeaway(request, env);
+    return await emailGuestTakeaway(await requestJson(request), env);
   } catch (error) {
     if (error instanceof RangeError) return json({ ok: false, reason: "request_too_large" }, 413);
     if (error instanceof SyntaxError) return json({ ok: false, reason: "invalid_json" }, 400);

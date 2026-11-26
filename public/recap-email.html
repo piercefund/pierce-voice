@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Email your Pierce recap</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="panel">
+      <h1>Email your Pierce recap</h1>
+      <form id="recap-delivery">
+        <label for="recap-email">Email address</label>
+        <input id="recap-email" type="email" autocomplete="email" maxlength="254" required>
+        <label for="recap-consent">
+          <input id="recap-consent" type="checkbox" required>
+          I confirm this email address and want Pierce to send my recap.
+        </label>
+        <button type="submit">Send recap</button>
+      </form>
+      <p id="recap-status" role="status"></p>
+    </section>
+  </main>
+  <script type="module" src="/recap-email.js"></script>
+</body>
+</html>
