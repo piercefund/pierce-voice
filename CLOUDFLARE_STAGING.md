@@ -143,3 +143,7 @@ not present.
    hangup before changing the production webhook or SIP trunk.
 3. Document and rehearse phone rollback by disabling the staging webhook. The
    GCP production route remains unchanged until explicit cutover approval.
+
+## Later phase: CareerOneStop training recommendations
+
+Use the [CareerOneStop Training V2 API](https://api.careeronestop.org/api-explorer/home/index/TrainingV2_GetTrainingProgramsList) to find training for the guest's agreed topic and stated city and state. Apply their format and program-length preferences when available. When there is a suitable match, name the provider and program in the session and include its link as the single Recommended Resource in the recap. Keep the Local Training Finder as a fallback for requests without a suitable match or when the API is unavailable.

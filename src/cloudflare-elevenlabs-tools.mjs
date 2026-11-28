@@ -1,3 +1,4 @@
+import { lookupRecommendedEvent } from "./pierce-recommended-events.mjs";
 import { formatCareerRecap } from "./pierce-career-recap-email.mjs";
 import { getOnetOccupationOverview, searchOnetOccupations } from "./cloudflare-onet.mjs";
 import { sendGmail } from "./cloudflare-google-api.mjs";
@@ -65,6 +66,11 @@ function boundedText(value, maxLength, required = false) {
   return text;
 }
 
+function recapText(value, maxLength) {
+  const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+  return text.length > maxLength ? `${text.slice(0, maxLength - 1).trimEnd()}…` : text;
+}
+
 function boundedLimit(value, fallback = 3) {
   if (value === undefined || value === null || value === "") return fallback;
   const number = Number(value);
@@ -124,21 +130,23 @@ async function lookupOnet(body, env, fetchImpl) {
 
 function lookupResources(body) {
   const query = boundedText(body.query, 200, true);
+  const searchQuery = query.replace(/\bg[.\s-]+i[.\s-]+s\b/gi, "GIS");
   const location = boundedText(body.location, 100);
   const limit = boundedLimit(body.limit);
-  const queryWords = words(query);
+  const queryWords = words(searchQuery);
   const ranked = Object.entries(PIERCE_APPROVED_RESOURCES).flatMap(([key, resource]) => {
     if (resource.serviceArea) {
-      const program = matchLocalProgram(resource, query, location);
+      const program = matchLocalProgram(resource, searchQuery, location);
       if (!program) return [];
       const { name, url, note } = program;
       const specific = program.keywords.some((keyword) =>
-        keyword.includes(" ") && ` ${normalizedPhrase(query)} `.includes(` ${keyword} `)
+        keyword.includes(" ") && ` ${normalizedPhrase(searchQuery)} `.includes(` ${keyword} `)
       );
-      return [{ resource: { ...publicResource(key), program: { name, url, note }, fit: "local" }, score: specific ? 110 : 100 }];
+      return [{ resource: { ...publicResource(key), program: { name, url, note }, fit: resource.statewideCalifornia ? "online" : "local" }, score: specific ? 110 : 100 }];
     }
     const searchable = [resource.name, resource.description, ...resource.categories].join(" ");
-    return [{ resource: { ...publicResource(key), fit: "national" }, score: overlapScore(queryWords, searchable) }];
+    const fit = resource.locations.length === 1 && resource.locations.includes("online") ? "online" : "national";
+    return [{ resource: { ...publicResource(key), fit }, score: overlapScore(queryWords, searchable) }];
   }).sort((left, right) => right.score - left.score || left.resource.name.localeCompare(right.resource.name));
   const selected = ranked.slice(0, limit).map(({ resource }) => resource);
   return response({
@@ -146,7 +154,8 @@ function lookupResources(body) {
     query,
     location,
     results: selected,
-    instruction: "Prioritize a returned local program that fits the stated need. Share the program note and preserve the exact provider name in recaps. Confirm current intake and eligibility with the provider. If location is missing, ask for city and state in one question only when it would improve the recommendation. Continue with national options if the guest declines."
+    recommended_event: lookupRecommendedEvent(query, location),
+    instruction: "Treat online options as online and explain any residency rules. Prioritize a returned local program that fits the stated need. Share the program note and preserve the exact provider name in recaps. Confirm current intake and eligibility with the provider. If location is missing, ask for city and state in one question only when it would improve the recommendation. Continue with national options if the guest declines."
   });
 }
 
@@ -172,16 +181,28 @@ export async function handleElevenLabsToolRoute(request, env, fetchImpl = fetch)
       if (body.email_consent !== true) {
         return response({ ok: false, error: "Email consent is required." }, 400);
       }
+      const [guidance, ...draftParts] = String(body.guidance || "").split(/(?:^|\n)\s*Email draft:[ \t]*/i);
+      const eventLine = /^[ \t]*Recommended event:[ \t]*([a-z0-9-]+)[ \t]*\r?$/im.exec(guidance);
+      const recapGuidance = eventLine ? guidance.replace(eventLine[0], "").trimStart() : guidance.trimStart();
+      const resourceHeader = /^(?:[ \t]*Recommended resource:[ \t]*[^\r\n]+(?:\r?\n|$))+/i.exec(recapGuidance)?.[0] || "";
+      const recommendedResources = resourceHeader.trim().split(/\r?\n/)
+        .map((line) => line.replace(/^\s*Recommended resource:[ \t]*/i, "").trim()).filter(Boolean).slice(0, 3);
+      const draft = draftParts.join("\nEmail draft: ").trim();
+      if (draft.length > 900) throw new TypeError("invalid_input");
       const fields = [
-        ["Career goal", boundedText(body.career_goal, 240, true)],
-        ["Strength", boundedText(body.strength, 240)],
-        ["Guidance", boundedText(body.guidance, 450, true)],
-        ["Next step", boundedText(body.next_step, 280, true)]
+        ["Career goal", recapText(body.career_goal, 240)],
+        ["Strength", recapText(body.strength, 240)],
+        ["Guidance", recapText(recapGuidance.slice(resourceHeader.length), 450)],
+        ["Next step", recapText(body.next_step, 280)],
+        ["Email draft", draft]
       ];
+      if (!recommendedResources.length && !fields.some(([, value]) => value)) {
+        return response({ ok: false, error: "Include at least one concrete detail from the session and retry once." }, 400);
+      }
       const recap = await createGuestTakeaway(env, {
         kind: WEB_RECAP_KIND,
         subject: "Your Pierce career session recap",
-        ...formatCareerRecap(fields.filter(([, value]) => value))
+        ...formatCareerRecap(fields.filter(([, value]) => value), { recommendedResources, recommendedEventId: eventLine?.[1].toLowerCase() })
       });
       if (!recap.email_available) return response({ ok: false, error: "Recap delivery is unavailable." }, 503);
       const link = new URL("/recap-email.html", request.url);

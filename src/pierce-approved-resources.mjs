@@ -1,6 +1,46 @@
-const SAN_DIEGO = ["san diego", "san diego county", "chula vista", "national city", "el cajon", "la mesa", "escondido", "oceanside", "carlsbad", "logan heights"];
+export const SAN_DIEGO = ["san diego", "san diego county", "chula vista", "national city", "el cajon", "la mesa", "escondido", "oceanside", "carlsbad", "logan heights"];
 
 export const PIERCE_APPROVED_RESOURCES = Object.freeze({
+  palomar_architectural_drafting: Object.freeze({
+    name: "Palomar College",
+    url: "https://www.palomar.edu/architecture/two-year-architecture-course-plan/",
+    description: "A San Diego County community college offering an Architectural Drafting Certificate of Achievement.",
+    eligibility: "Confirm current course availability, scheduling, and requirements with Palomar College.",
+    categories: ["architecture", "architectural drafting", "architectural drafting certificate"],
+    serviceArea: [...SAN_DIEGO, "san marcos", "rancho bernardo", "vista", "encinitas", "poway", "solana beach", "del mar"],
+    locations: ["san diego county", "california"],
+    programs: [{
+      name: "Architectural Drafting Certificate of Achievement",
+      url: "https://www.palomar.edu/architecture/two-year-architecture-course-plan/",
+      note: "Palomar’s academic map lists an 18-unit certificate. Review the course sequence and confirm the next start with the college.",
+      keywords: ["architectural drafting", "architecture drafting", "architectural design and drafting"]
+    }]
+  }),
+  career_onestop_local_training: Object.freeze({
+    name: "CareerOneStop Local Training Finder",
+    aliases: ["Local Training Finder"],
+    url: "https://www.careeronestop.org/Toolkit/Training/find-local-training.aspx",
+    description: "Search U.S. training programs by subject and location, then filter for shorter certificate options.",
+    categories: ["local college", "community college", "training program", "certificate", "short term training"],
+    locations: ["online", "united states"]
+  }),
+  apa_choosing_the_planning_profession: Object.freeze({
+    name: "American Planning Association — Choosing the Planning Profession",
+    aliases: ["Choosing the Planning Profession"],
+    url: "https://www.planning.org/choosingplanning/",
+    description: "An introduction to urban and community planning careers, what planners do, and the skills and education that can prepare you for the field.",
+    categories: ["urban planning", "city planning", "community planning", "planning careers", "planning education", "career exploration"],
+    locations: ["online", "united states"]
+  }),
+  uc_davis_fundamentals_of_gis: Object.freeze({
+    name: "UC Davis Fundamentals of GIS",
+    aliases: ["Fundamentals of GIS"],
+    url: "https://www.coursera.org/learn/gis/",
+    description: "A beginner online course from UC Davis on Coursera covering geographic information systems, mapping, spatial data, and ArcGIS.",
+    eligibility: "Check Coursera for current pricing, enrollment options, and software requirements.",
+    categories: ["GIS courses", "GIS training", "geographic information systems", "spatial analysis", "cartography", "ArcGIS"],
+    locations: ["online"]
+  }),
   my_next_move: Object.freeze({
     name: "My Next Move",
     url: "https://www.mynextmove.org/",
@@ -83,6 +123,25 @@ export const PIERCE_APPROVED_RESOURCES = Object.freeze({
         keywords: ["ai", "artificial intelligence", "chatgpt", "generative ai", "microcredential"]
       }
     ]
+  }),
+  sandag_careers: Object.freeze({
+    name: "SANDAG",
+    aliases: ["San Diego Association of Governments"],
+    url: "https://www.sandag.org/about/work-with-us/careers",
+    contactUrl: "https://www.sandag.org/about/work-with-us/careers/working-at-sandag",
+    email: "hr@sandag.org",
+    phone: "+1 619-699-1900",
+    description: "Explore careers and internships at San Diego’s regional planning agency.",
+    eligibility: "Check current openings and qualifications on the official careers page.",
+    categories: ["urban planning", "regional planning", "transportation planning"],
+    serviceArea: SAN_DIEGO,
+    locations: ["san diego", "california"],
+    programs: [{
+      name: "SANDAG Careers",
+      url: "https://www.sandag.org/about/work-with-us/careers",
+      note: "Review current opportunities in regional and urban planning and related fields.",
+      keywords: ["urban planning", "regional planning", "transportation planning", "city planning", "land use planning", "sandag"]
+    }]
   }),
   irc_san_diego: Object.freeze({
     name: "International Rescue Committee San Diego",

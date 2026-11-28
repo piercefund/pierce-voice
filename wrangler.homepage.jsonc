@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "pierce-fund-homepage",
+  "main": "./src/pierce-homepage-worker.mjs",
+  "compatibility_date": "2026-11-26",
+  "assets": {
+    "directory": "./homepage",
+    "binding": "HOMEPAGE",
+    "run_worker_first": true
+  },
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "pierce.fund", "custom_domain": true }]
+}

@@ -5,7 +5,14 @@ if (location.pathname === "/") {
   const home = document.createElement("main");
   home.className = "pierce-home";
   home.innerHTML = `
-    <header><a href="https://pierce.fund"><img src="/pierce-logo-horizontal.svg" alt="Pierce"></a></header>
+    <header class="pierce-voice-header">
+      <div class="pierce-voice-wrap">
+        <a class="pierce-voice-brand" href="https://pierce.fund" aria-label="Pierce home">
+          <img src="/pierce-favicon-32.png" width="32" height="32" alt="">Pierce
+        </a>
+        <a class="pierce-voice-back" href="https://pierce.fund">pierce.fund →</a>
+      </div>
+    </header>
     <div class="pierce-home-stage">
       <div class="pierce-home-orb" aria-hidden="true"></div>
       <h1>Find your next career move</h1>
@@ -15,9 +22,15 @@ if (location.pathname === "/") {
     <p class="pierce-home-status" role="status"></p>
     <div class="pierce-home-transcript" role="log" aria-label="Conversation"></div>
     <form>
-      <textarea aria-label="Message Pierce in Quiet Mode" placeholder="Start in Quiet Mode. What would you like to explore?" rows="2" maxlength="1500" required></textarea>
+      <textarea aria-label="Message Pierce in Quiet Mode" placeholder="What would you like to explore?&#10;For example: I’m thinking about changing careers and want help choosing a first step." rows="3" maxlength="1500" required></textarea>
       <button type="submit">Send</button>
-    </form>`;
+    </form>
+    <footer class="pierce-voice-footer">
+      <div class="pierce-voice-wrap">
+        <strong>One resource, one event, one human connection</strong>
+        <a href="https://pierce.fund">Pierce · pierce.fund</a>
+      </div>
+    </footer>`;
   original.hidden = true;
   original.before(home);
 
@@ -29,20 +42,58 @@ if (location.pathname === "/") {
   const transcript = home.querySelector("[role=log]");
   let session;
   let busy = false;
+  let recapDeliveryId;
+  const openingPlaceholder = input.placeholder;
+  const emailAddress = document.createElement("input");
+  emailAddress.type = "email";
+  emailAddress.required = true;
+  const voiceGoodbye = /(?:^|\s)Thanks for talking with me\. Take care\.[”"]?$/i;
 
-  function showMessage(source, message) {
+  function setRecapDelivery(id) {
+    recapDeliveryId = id;
+    input.value = "";
+    input.placeholder = id ? "Enter your email address" : openingPlaceholder;
+    input.setAttribute("aria-label", id ? "Email address for your Pierce recap" : "Message Pierce in Quiet Mode");
+    input.inputMode = id ? "email" : "text";
+    send.textContent = id ? "Email my recap" : "Send";
+  }
+
+  async function emailRecap(address) {
+    emailAddress.value = address;
+    if (!emailAddress.checkValidity()) {
+      status.textContent = "Enter a valid email address to send your recap.";
+      return;
+    }
+    status.textContent = "Sending your recap…";
+    const response = await fetch("/guest-takeaway/email", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ delivery_id: recapDeliveryId, guest_email: address, email_consent: true })
+    });
+    const result = await response.json();
+    if (response.ok && result.email_status === "sent") {
+      setRecapDelivery(undefined);
+      status.textContent = result.duplicate ? "This recap was already sent." : "Your recap was sent.";
+    } else if (response.status === 404 || response.status === 410) {
+      setRecapDelivery(undefined);
+      status.textContent = "This recap has expired.";
+    } else {
+      status.textContent = "Pierce couldn’t send your recap. Check your address and try again.";
+    }
+  }
+
+  function showMessage(source, message, textOnly) {
     if (!message) return;
     const line = document.createElement("p");
     line.textContent = `${source === "user" ? "You" : "Pierce"}: ${message}`;
     const recapLink = source === "ai" && message.match(
-      /https:\/\/voice\.pierce\.fund\/recap-email\.html#[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}\b/i
+      /https:\/\/voice\.pierce\.fund\/recap-email\.html#([\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12})\b/i
     );
     if (recapLink) {
-      const link = document.createElement("a");
-      link.href = recapLink[0];
-      link.textContent = "Email my recap";
-      line.textContent = "Pierce: Your recap is ready. ";
-      line.append(link);
+      if (!textOnly) return;
+      if (recapDeliveryId === recapLink[1]) return;
+      setRecapDelivery(recapLink[1]);
+      line.textContent = "Pierce: Your recap is ready. Type your email below, check the address, and select Email my recap to send it.";
     }
     transcript.append(line);
     transcript.scrollTop = transcript.scrollHeight;
@@ -55,22 +106,45 @@ if (location.pathname === "/") {
   }
 
   async function start(textOnly) {
+    let openingMessage;
+    let guestHasReplied = false;
+    let closeAfterSpeech = false;
+    let conversation;
     status.textContent = "Connecting to Pierce…";
     const { Conversation } = await import("https://esm.sh/@elevenlabs/client@1.38.0");
-    session = await Conversation.startSession({
+    conversation = await Conversation.startSession({
       agentId,
       textOnly,
-      onMessage: ({ source, message }) => showMessage(source, message),
+      onMessage: ({ source, message }) => {
+        if (source === "user") guestHasReplied = true;
+        if (source === "ai" && !guestHasReplied && message) {
+          const normalized = message.trim().replace(/\s+/g, " ");
+          if (normalized === openingMessage) return;
+          openingMessage = normalized;
+        }
+        showMessage(source, message, textOnly);
+        if (!textOnly && source === "ai" && voiceGoodbye.test(message?.trim() || "")) {
+          closeAfterSpeech = true;
+        }
+      },
+      onModeChange: ({ mode }) => {
+        if (!closeAfterSpeech || mode !== "listening" || !conversation || session !== conversation) return;
+        closeAfterSpeech = false;
+        void conversation.endSession().catch(() => {
+          status.textContent = "Couldn’t close the session automatically.";
+        });
+      },
       onDisconnect: () => {
         session = undefined;
         call.textContent = "Start Voice Mode";
-        status.textContent = "Session ended.";
+        if (!recapDeliveryId) status.textContent = "Session ended.";
       },
       onError: () => { status.textContent = "Pierce ran into a connection problem."; }
     });
+    session = conversation;
     session.sendContextualUpdate(textOnly
-      ? "The guest is using Quiet Mode on the Pierce website."
-      : "The guest is using Voice Mode on the Pierce website.");
+      ? "Pierce website session mode: Quiet Mode (text only). After the guest accepts, return the exact recap delivery URL so the website can collect their email in the same message box."
+      : "Pierce website session mode: Voice Mode (microphone and spoken responses). Use the phone recap flow: offer email aloud, ask for the address by voice, confirm it, and send directly. Do not offer or read a recap link.");
     call.textContent = "End session";
     status.textContent = textOnly ? "Text session connected." : "Voice session connected.";
   }
@@ -87,12 +161,20 @@ if (location.pathname === "/") {
     }
   }
 
-  call.addEventListener("click", () => run(() => session ? session.endSession() : start(false)));
+  call.addEventListener("click", () => run(() => {
+    if (session) return session.endSession();
+    if (recapDeliveryId) setRecapDelivery(undefined);
+    return start(false);
+  }));
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     const message = input.value.trim();
     if (!message) return;
     void run(async () => {
+      if (recapDeliveryId) {
+        await emailRecap(message);
+        return;
+      }
       if (!session) await start(true);
       session.sendUserMessage(message);
       input.value = "";

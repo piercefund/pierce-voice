@@ -208,7 +208,7 @@ test("ends a repeated directory lookup and suppresses split planning tags", asyn
     function: { name: call.function.name, parameters: { type: "object" } }
   }];
   const response = await handleCustomLlmRoute(request(body), env(async (_model, input) => {
-    assert.deepEqual(input.tools, []);
+    assert.deepEqual(input.tools, input.stream ? [] : undefined);
     return stream(
       { response: "[th" },
       { response: "ought] I will search again." },
@@ -217,7 +217,7 @@ test("ends a repeated directory lookup and suppresses split planning tags", asyn
   }));
   const chunks = await ssePayloads(response);
   assert.equal(chunks.at(-1).choices[0].finish_reason, "stop");
-  assert.match(JSON.stringify(chunks), /What would you like to focus on next/);
+  assert.match(JSON.stringify(chunks), /Please try again in a new session/);
   assert.doesNotMatch(JSON.stringify(chunks), /thought|search again|lookup_resource_directory/);
 });
 
@@ -232,4 +232,37 @@ test("keeps the resource lookup available when recap confirmation includes a que
     return stream({ response: "I can help you explore San Diego options." });
   }));
   assert.equal((await ssePayloads(response)).at(-1).choices[0].finish_reason, "stop");
+});
+
+test("recovers from planning-only output with one direct reply", async () => {
+  let calls = 0;
+  const body = baseBody();
+  body.messages.push(
+    { role: "assistant", content: "I’m having trouble responding right now. Please try again in a new session." },
+    { role: "user", content: "I am interested in financial planning." }
+  );
+  const response = await handleCustomLlmRoute(request(body), env(async (_model, input) => {
+    calls += 1;
+    if (calls === 1) return stream({ response: "[thought] private planning" });
+    assert.equal(input.tools, undefined);
+    assert.match(input.messages[0].content, /Answer the guest directly/);
+    assert.deepEqual(input.messages.slice(1).map(({ role }) => role), ["user", "user"]);
+    assert.equal(input.stream, false);
+    return { choices: [{ message: { content: "Which health career interests you most?" } }] };
+  }));
+  const output = await response.text();
+  assert.equal(calls, 2);
+  assert.match(output, /Which health career interests you most/);
+  assert.doesNotMatch(output, /private planning|couldn.t finish/);
+});
+
+test("does not speak plain-text directory instructions or an assumed city", async () => {
+  const response = await handleCustomLlmRoute(request(baseBody()), env(async (_model, input) =>
+    input.stream
+      ? stream({ response: "lookup resource " }, { response: "directory financial planning location San Diego" })
+      : { response: "What city and state are you in?" }
+  ));
+  const output = await response.text();
+  assert.match(output, /What city and state are you in/);
+  assert.doesNotMatch(output, /lookup resource directory|San Diego/);
 });

@@ -9,7 +9,7 @@
   aspect-ratio: 1;
   overflow: hidden;
   isolation: isolate;
-  border-radius: 50%;
+  border-radius: 29%;
   background: #183968;
   box-shadow: 0 1.2rem 3rem #14677633;
 }
@@ -47,3 +47,40 @@
 .pierce-home-status { text-align: center; min-height: 1.5em; }
 .pierce-home-transcript { max-height: 18rem; overflow: auto; }
 .pierce-home-transcript:empty { display: none; }
+
+/* Pierce homepage branding for the session entry page. */
+.pierce-home {
+  width: 100%;
+  min-height: 100svh;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+  color: #121827;
+  font: 16px/1.55 system-ui, sans-serif;
+  display: flex;
+  flex-direction: column;
+}
+.pierce-voice-header, .pierce-voice-footer { background: #0e1728; color: white; }
+.pierce-voice-wrap { width: min(100% - 2.5rem, 44rem); margin-inline: auto; padding-block: 1.25rem; }
+.pierce-home .pierce-voice-header .pierce-voice-wrap { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .85rem; }
+.pierce-home .pierce-voice-brand { display: inline-flex; align-items: center; gap: .8rem; color: white; font-size: 1.45rem; font-weight: 850; text-decoration: none; }
+.pierce-home .pierce-voice-brand img { width: 2.75rem; height: 2.75rem; }
+.pierce-home .pierce-voice-back, .pierce-voice-footer a { color: #78cde4; font-weight: 750; }
+.pierce-home-stage, .pierce-home-status, .pierce-home-transcript, .pierce-home form { width: min(100% - 2.5rem, 44rem); margin-inline: auto; }
+.pierce-home-stage { padding: clamp(1.75rem, 5vw, 3.25rem) 0 0; }
+.pierce-home-stage h1 { font-size: clamp(2.1rem, 6vw, 3.25rem); line-height: 1.08; letter-spacing: -.045em; }
+.pierce-home-stage p { margin: 0; color: #586271; }
+.pierce-home button { min-height: 3.3rem; border-radius: 999px; font-weight: 800; }
+.pierce-home-stage button { background: #176d3b; padding-inline: 1.5rem; }
+.pierce-home form { align-items: center; margin-bottom: 1.75rem; border-color: #d8e4e7; background: #e8f6fa; }
+.pierce-home textarea { border-radius: .65rem; padding: .75rem; background: white; color: #121827; }
+.pierce-home form button { background: #0f1829; padding-inline: 1.35rem; }
+@media (max-width: 36rem) {
+  .pierce-home textarea { flex-basis: 100%; min-height: 9rem; }
+}
+.pierce-home :focus-visible { outline: 3px solid #4a83f3; outline-offset: 3px; }
+.pierce-voice-footer { margin-top: auto; }
+.pierce-voice-footer strong, .pierce-voice-footer a { display: block; }
+.pierce-voice-footer strong { margin-bottom: .35rem; font-weight: 800; }
